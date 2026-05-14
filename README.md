@@ -1,0 +1,411 @@
+# Pressship
+
+[![Node.js 20+](https://img.shields.io/badge/node-%3E%3D20-339933?logo=node.js&logoColor=white)](https://nodejs.org/)
+[![WordPress.org](https://img.shields.io/badge/WordPress.org-plugin%20directory-3858e9?logo=wordpress&logoColor=white)](https://wordpress.org/plugins/developers/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
+Pressship is a modern CLI for preparing, validating, submitting, and releasing WordPress.org plugins from the terminal.
+
+It is designed to make WordPress plugin publishing feel closer to npm package publishing:
+
+```bash
+npx pressship login
+npx pressship submit ./my-plugin --dry-run
+npx pressship submit ./my-plugin
+```
+
+## Why Pressship?
+
+Publishing a WordPress plugin to WordPress.org involves a lot of small steps: creating the right zip, validating `readme.txt`, running Plugin Check, logging into WordPress.org, uploading through the developer page, and later publishing releases through SVN.
+
+Pressship automates that workflow while still using WordPress.org's existing review and release systems.
+
+## Features
+
+- Browser-based WordPress.org login with saved local session state.
+- `whoami` and `logout` commands for session management.
+- Plugin discovery from WordPress plugin headers.
+- `readme.txt` parsing and local validation.
+- WordPress.org readme validator automation.
+- WordPress-installable zip generation.
+- Managed WordPress.org Plugin Check setup and execution.
+- Current WordPress.org submission state inspection.
+- Pending-plugin reupload support via the WordPress.org developer page.
+- SVN release workflow for approved plugins.
+- Repeatable ignore globs and `.pressshipignore` support.
+- Colorful CLI output with progress indicators.
+
+## Quick Start
+
+```bash
+# Authenticate with WordPress.org.
+npx pressship login
+
+# Confirm the saved account.
+npx pressship whoami
+
+# Inspect current submitted plugin state.
+npx pressship status ./my-plugin
+
+# Validate and package without uploading.
+npx pressship submit ./my-plugin --dry-run
+
+# Submit or upload an updated zip for review.
+npx pressship submit ./my-plugin
+```
+
+After a plugin is approved, release through WordPress.org SVN:
+
+```bash
+npx pressship release ./my-plugin --slug my-plugin --username WpOrgUser
+```
+
+## Requirements
+
+- Node.js 20 or newer.
+- A WordPress.org account.
+- Internet access for first-run browser and Plugin Check setup.
+- PHP for Pressship's managed Plugin Check environment when system WP-CLI is unavailable.
+- `svn` for `pressship release`.
+
+Pressship installs Playwright Chromium automatically when browser automation first needs it.
+
+## Command Overview
+
+```bash
+pressship login
+pressship whoami [--json]
+pressship logout
+pressship status [plugin-path-or-slug] [--json]
+pressship version <patch|minor|major> [plugin-path]
+pressship submit [plugin-path] [options]
+pressship release [plugin-path] [options]
+```
+
+## Login Flow
+
+```bash
+pressship login
+```
+
+Pressship opens `login.wordpress.org` in a real browser. Complete login manually, including any two-factor or account checks. Pressship waits until it detects a logged-in WordPress.org user, saves the browser session locally, and closes the browser.
+
+Pressship does not store your WordPress.org password.
+
+Useful commands:
+
+```bash
+pressship whoami
+pressship whoami --json
+pressship logout
+```
+
+## Status Flow
+
+```bash
+pressship status
+pressship status ./my-plugin
+pressship status my-plugin
+pressship status my-plugin --json
+```
+
+`status` reads the logged-in WordPress.org developer page and reports the current state of submitted plugins.
+
+For pending submissions it can show:
+
+- Review status.
+- Assigned slug.
+- Plugin ID.
+- Submitted zip filename.
+- Submitted version.
+- Upload date.
+- Plugin Check URL.
+- Whether slug change is available.
+- Whether updated zip upload is available.
+
+When given a local plugin path, Pressship discovers the plugin headers and uses the inferred slug/name to find the matching WordPress.org submission.
+
+Example output:
+
+```text
+Pressmind
+  Status       Awaiting Review — This plugin has not yet been reviewed.
+  Slug         pressmind
+  Submitted    May 14, 2026
+  Plugin ID    313331
+  Reupload     available
+  Slug change  available
+  File         pressmind.zip
+  Version      0.0.3
+```
+
+## Version Flow
+
+```bash
+pressship version patch
+pressship version minor ./my-plugin
+pressship version major ./my-plugin
+```
+
+`version` bumps local plugin metadata, similar to `npm version`.
+
+It updates:
+
+- The main plugin file `Version:` header.
+- The `Stable tag:` value in `readme.txt`, when a readme exists.
+
+Examples:
+
+```bash
+# 1.2.3 -> 1.2.4
+pressship version patch
+
+# 1.2.3 -> 1.3.0
+pressship version minor ./my-plugin
+
+# 1.2.3 -> 2.0.0
+pressship version major ./my-plugin
+```
+
+## Submit Flow
+
+```bash
+pressship submit ./my-plugin
+```
+
+`submit` runs the full WordPress.org review preparation flow:
+
+1. Discover the plugin main file.
+2. Parse WordPress plugin headers.
+3. Parse and validate `readme.txt`.
+4. Validate `readme.txt` with the WordPress.org readme validator.
+5. Build a WordPress-installable zip.
+6. Stage package contents for Plugin Check.
+7. Run the official WordPress.org Plugin Check.
+8. Ask for confirmation when blocking findings are reported.
+9. Upload the zip to WordPress.org.
+
+If WordPress.org already has a pending submission matching the plugin slug or name, Pressship uses the "Upload updated plugin for review" form instead of the new-plugin form.
+
+Useful options:
+
+```bash
+pressship submit ./my-plugin --dry-run
+pressship submit ./my-plugin --skip-plugin-check
+pressship submit ./my-plugin --skip-readme-validator
+pressship submit ./my-plugin --wp-path /path/to/wordpress
+pressship submit ./my-plugin --ignore "assets/**/*.mp4"
+pressship submit ./my-plugin --ignore "assets/**/*.mp4" --ignore "docs/raw/**"
+pressship submit ./my-plugin --output-dir ./build
+pressship submit ./my-plugin --yes
+```
+
+## Managed Plugin Check
+
+By default, Pressship prepares its own local Plugin Check environment in your user config cache.
+
+It can automatically:
+
+- Use system WP-CLI when available.
+- Download `wp-cli.phar` when system WP-CLI is unavailable.
+- Download WordPress core.
+- Create a managed `wp-config.php`.
+- Install SQLite Database Integration for a local database-free setup.
+- Run `wp core install` against the SQLite-backed local WordPress install.
+- Download the WordPress.org Plugin Check plugin.
+- Load Plugin Check with the required WP-CLI bootstrap file.
+
+This means most users can run:
+
+```bash
+pressship submit ./my-plugin --dry-run
+```
+
+without manually installing WordPress, WP-CLI, MySQL, or the Plugin Check plugin.
+
+If you already have a local WordPress install with Plugin Check available, pass it explicitly:
+
+```bash
+pressship submit ./my-plugin --wp-path /path/to/wordpress
+```
+
+## Release Flow
+
+```bash
+pressship release ./my-plugin --slug my-plugin --username WpOrgUser
+```
+
+WordPress.org initial review uses a zip upload. Approved plugin releases use SVN. Pressship keeps those workflows separate.
+
+`release` will:
+
+1. Checkout or update `https://plugins.svn.wordpress.org/<slug>`.
+2. Sync packaged plugin files into `trunk/`.
+3. Create `tags/<version>` from trunk.
+4. Show `svn status`.
+5. Ask for confirmation.
+6. Commit the release.
+
+Useful options:
+
+```bash
+pressship release ./my-plugin --slug my-plugin
+pressship release ./my-plugin --version 1.2.3
+pressship release ./my-plugin --username WpOrgUser
+pressship release ./my-plugin --message "Release 1.2.3"
+pressship release ./my-plugin --ignore "assets/**/*.mp4"
+pressship release ./my-plugin --dry-run
+pressship release ./my-plugin --yes
+```
+
+## Packaging Rules
+
+Pressship creates a zip with one top-level plugin folder, matching the format expected by WordPress plugin upload.
+
+It excludes common development artifacts by default:
+
+- `.git`
+- `.gitignore`
+- `.github`
+- `.DS_Store`
+- `.idea`
+- `.vscode`
+- `.env`
+- `.env.*`
+- `node_modules`
+- `dist`
+- `build`
+- `coverage`
+- `tests`
+- `*.log`
+- `*.zip`
+- `.pressshipignore`
+- legacy `.pressportignore`
+
+Add a `.pressshipignore` file in your plugin directory for project-specific exclusions:
+
+```gitignore
+assets/**/*.mp4
+docs/raw/**
+playground/**
+```
+
+You can also ignore files per command:
+
+```bash
+pressship submit ./my-plugin --ignore "assets/**/*.mp4"
+pressship release ./my-plugin --ignore "assets/**/*.mp4"
+```
+
+## Configuration And Cache
+
+Pressship stores local state under your user config directory:
+
+```text
+~/.config/pressship/
+```
+
+This includes:
+
+- WordPress.org browser session storage.
+- Debug screenshots for failed browser automation.
+- Managed Plugin Check cache.
+- Managed WordPress core and SQLite setup.
+
+You can override the config directory:
+
+```bash
+PRESSSHIP_CONFIG_DIR=/tmp/pressship pressship status
+```
+
+For migration compatibility, `PRESSPORT_CONFIG_DIR` is still accepted as a fallback.
+
+## Troubleshooting
+
+### Browser Runtime Missing
+
+Pressship installs Chromium automatically. If that fails, run:
+
+```bash
+npx playwright install chromium
+```
+
+For local development:
+
+```bash
+npm run browsers:install
+```
+
+### Not Logged In
+
+Run:
+
+```bash
+pressship login
+pressship whoami
+```
+
+If the saved session is stale:
+
+```bash
+pressship logout
+pressship login
+```
+
+### Plugin Check Setup Problems
+
+The managed Plugin Check environment is automatic, but it still needs PHP and internet access on first run.
+
+To bypass Plugin Check:
+
+```bash
+pressship submit ./my-plugin --skip-plugin-check
+```
+
+To use your own WordPress install:
+
+```bash
+pressship submit ./my-plugin --wp-path /path/to/wordpress
+```
+
+### WordPress.org Form Changes
+
+The WordPress.org submission and reupload flows are browser automation over the logged-in developer page, not a documented public API. If WordPress.org changes the form, Pressship fails loudly and saves a debug screenshot under the config directory.
+
+## Development
+
+```bash
+npm install
+npm run dev -- --help
+npm run typecheck
+npm test
+npm run build
+```
+
+Run local commands without publishing:
+
+```bash
+npm run dev -- login
+npm run dev -- whoami
+npm run dev -- status
+npm run dev -- submit ./my-plugin --dry-run
+npm run dev -- release ./my-plugin --dry-run
+```
+
+Package smoke test:
+
+```bash
+npm pack --dry-run
+```
+
+## Security Notes
+
+- Pressship does not store your WordPress.org password.
+- Login is completed in a real browser.
+- Pressship stores Playwright browser session state locally.
+- `logout` removes Pressship's saved local browser session.
+- `logout` does not revoke other active WordPress.org sessions.
+
+## License
+
+MIT

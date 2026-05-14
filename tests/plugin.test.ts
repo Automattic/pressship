@@ -1,0 +1,143 @@
+import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { describe, expect, it } from "vitest";
+import { createPluginZip, listPackageFiles, stagePluginDirectory } from "../src/package/archive.js";
+import { discoverPluginProject } from "../src/plugin/discover.js";
+import { parsePluginHeaders } from "../src/plugin/headers.js";
+import { parseReadme, validateReadmeLocally } from "../src/plugin/readme.js";
+import { bumpVersion, updatePluginHeaderVersion, updateReadmeStableTag } from "../src/plugin/version.js";
+
+describe("plugin parsing", () => {
+  it("parses WordPress plugin headers", () => {
+    const headers = parsePluginHeaders(`<?php
+/**
+ * Plugin Name: Example Plugin
+ * Version: 1.2.3
+ * Text Domain: example-plugin
+ * Requires PHP: 8.1
+ */
+`);
+
+    expect(headers).toMatchObject({
+      pluginName: "Example Plugin",
+      version: "1.2.3",
+      textDomain: "example-plugin",
+      requiresPhp: "8.1"
+    });
+  });
+
+  it("discovers the main file and readme metadata", async () => {
+    const root = await samplePlugin();
+    const project = await discoverPluginProject(root);
+
+    expect(project.slug).toBe("example-plugin");
+    expect(project.version).toBe("1.2.3");
+    expect(path.basename(project.mainFile)).toBe("example-plugin.php");
+    expect(project.readme?.stableTag).toBe("1.2.3");
+  });
+});
+
+describe("readme parsing", () => {
+  it("flags local readme issues", () => {
+    const readme = parseReadme("=== Example ===\nTags: one, two, three, four, five, six\n");
+    const findings = validateReadmeLocally("=== Example ===\nTags: one, two, three, four, five, six\n", readme);
+
+    expect(findings.map((finding) => finding.code)).toContain("readme.too_many_tags");
+    expect(findings.map((finding) => finding.code)).toContain("readme.missing_stable_tag");
+  });
+});
+
+describe("packaging", () => {
+  it("creates an installable zip with a top-level plugin folder", async () => {
+    const root = await samplePlugin();
+    await mkdir(path.join(root, ".git", "objects"), { recursive: true });
+    await writeFile(path.join(root, ".git", "objects", "ignored"), "");
+    await writeFile(path.join(root, ".gitignore"), "node_modules\n");
+    await mkdir(path.join(root, "node_modules", "ignored"), { recursive: true });
+    await writeFile(path.join(root, "node_modules", "ignored", "file.js"), "");
+
+    const project = await discoverPluginProject(root);
+    const files = await listPackageFiles(root);
+    const result = await createPluginZip(project, { outputDir: path.join(root, "build-output") });
+    const zipBytes = await readFile(result.zipPath);
+
+    expect(files).toEqual(["example-plugin.php", "readme.txt"]);
+    expect(result.topLevelFolder).toBe("example-plugin");
+    expect(zipBytes.length).toBeGreaterThan(0);
+  });
+
+  it("ignores caller-provided glob patterns", async () => {
+    const root = await samplePlugin();
+    await mkdir(path.join(root, "assets", "videos"), { recursive: true });
+    await writeFile(path.join(root, "assets", "videos", "demo.mp4"), "");
+    await writeFile(path.join(root, "assets", "poster.jpg"), "");
+
+    const files = await listPackageFiles(root, { ignore: ["assets/**/*.mp4"] });
+
+    expect(files).toEqual(["assets/poster.jpg", "example-plugin.php", "readme.txt"]);
+  });
+
+  it("stages the package files for Plugin Check", async () => {
+    const root = await samplePlugin();
+    const project = await discoverPluginProject(root);
+    const stage = await stagePluginDirectory(project, { outputDir: path.join(root, "build-output") });
+    const stagedMain = await readFile(path.join(stage.path, "example-plugin.php"), "utf8");
+
+    expect(path.basename(stage.path)).toBe("example-plugin");
+    expect(stage.files).toEqual(["example-plugin.php", "readme.txt"]);
+    expect(stagedMain).toContain("Plugin Name: Example Plugin");
+  });
+});
+
+describe("version bumps", () => {
+  it("bumps semver patch, minor, and major", () => {
+    expect(bumpVersion("1.2.3", "patch")).toBe("1.2.4");
+    expect(bumpVersion("1.2.3", "minor")).toBe("1.3.0");
+    expect(bumpVersion("1.2.3", "major")).toBe("2.0.0");
+  });
+
+  it("updates plugin header and readme stable tag", async () => {
+    const root = await samplePlugin();
+    const mainFile = path.join(root, "example-plugin.php");
+    const readmePath = path.join(root, "readme.txt");
+
+    await updatePluginHeaderVersion(mainFile, "1.2.4");
+    await updateReadmeStableTag(readmePath, "1.2.4");
+
+    expect(await readFile(mainFile, "utf8")).toContain(" * Version: 1.2.4");
+    expect(await readFile(readmePath, "utf8")).toContain("Stable tag: 1.2.4");
+  });
+});
+
+async function samplePlugin(): Promise<string> {
+  const root = await mkdtemp(path.join(tmpdir(), "pressship-plugin-"));
+  await writeFile(
+    path.join(root, "example-plugin.php"),
+    `<?php
+/**
+ * Plugin Name: Example Plugin
+ * Description: Does example things.
+ * Version: 1.2.3
+ * Text Domain: example-plugin
+ */
+`
+  );
+  await writeFile(
+    path.join(root, "readme.txt"),
+    `=== Example Plugin ===
+Contributors: example
+Tags: example, tools
+Requires at least: 6.0
+Tested up to: 6.8
+Stable tag: 1.2.3
+Requires PHP: 8.1
+License: GPLv2 or later
+
+== Description ==
+Does example things.
+`
+  );
+
+  return root;
+}

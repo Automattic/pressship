@@ -1,0 +1,56 @@
+{
+  "name": "pressship",
+  "version": "0.1.0",
+  "description": "Submit and release WordPress.org plugins from the command line.",
+  "bin": {
+    "pressship": "./dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "main": "./dist/cli.js",
+  "types": "./dist/cli.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "browsers:install": "playwright install chromium",
+    "dev": "tsx src/cli.ts",
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "keywords": [
+    "wordpress",
+    "wordpress.org",
+    "plugin",
+    "cli",
+    "submission",
+    "svn"
+  ],
+  "author": "",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@inquirer/prompts": "^8.4.3",
+    "chalk": "^5.6.2",
+    "commander": "^14.0.3",
+    "execa": "^9.6.1",
+    "extract-zip": "^2.0.1",
+    "fast-glob": "^3.3.3",
+    "ignore": "^7.0.5",
+    "ora": "^9.4.0",
+    "playwright": "^1.60.0",
+    "yazl": "^3.3.1",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@types/node": "^25.7.0",
+    "@types/yazl": "^3.3.1",
+    "tsx": "^4.21.0",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.6"
+  }
+}
