@@ -1,10 +1,22 @@
-# Pressship
+<p align="center">
+  <img src="assets/pressship.png" alt="Pressship" width="160">
+</p>
 
-[![Node.js 20+](https://img.shields.io/badge/node-%3E%3D20-339933?logo=node.js&logoColor=white)](https://nodejs.org/)
-[![WordPress.org](https://img.shields.io/badge/WordPress.org-plugin%20directory-3858e9?logo=wordpress&logoColor=white)](https://wordpress.org/plugins/developers/)
-[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+<h1 align="center">Pressship</h1>
 
-Pressship is a modern CLI for preparing, validating, submitting, and releasing WordPress.org plugins from the terminal.
+<p align="center">
+  A modern CLI for preparing, validating, submitting, and releasing WordPress.org plugins from the terminal.
+</p>
+
+<p align="center">
+  <a href="https://nodejs.org/"><img alt="Node.js 20+" src="https://img.shields.io/badge/node-%3E%3D20-339933?logo=node.js&logoColor=white"></a>
+  <a href="https://wordpress.org/plugins/developers/"><img alt="WordPress.org Plugin Directory" src="https://img.shields.io/badge/WordPress.org-plugin%20directory-3858e9?logo=wordpress&logoColor=white"></a>
+  <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-blue.svg"></a>
+</p>
+
+<p align="center">
+  <strong>WordPress.org plugin publishing, but closer to <code>npm publish</code>.</strong>
+</p>
 
 It is designed to make WordPress plugin publishing feel closer to npm package publishing:
 
