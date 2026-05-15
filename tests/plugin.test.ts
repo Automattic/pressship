@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { createPluginZip, listPackageFiles, stagePluginDirectory } from "../src/package/archive.js";
+import { createPluginPack, skippedPackValidation, summarizePackResult, validatePluginPack } from "../src/package/pack.js";
 import { discoverPluginProject } from "../src/plugin/discover.js";
 import { parsePluginHeaders } from "../src/plugin/headers.js";
 import { parseReadme, validateReadmeLocally } from "../src/plugin/readme.js";
@@ -88,6 +89,112 @@ describe("packaging", () => {
     expect(stage.files).toEqual(["example-plugin.php", "readme.txt"]);
     expect(stagedMain).toContain("Plugin Name: Example Plugin");
   });
+
+  it("packs a plugin zip for the npm-style pack command", async () => {
+    const root = await samplePlugin();
+    const outputDir = path.join(root, "pack-output");
+    const result = await createPluginPack(root, { outputDir });
+
+    expect(result.zipPath).toBe(path.join(outputDir, "example-plugin.zip"));
+    expect(result.topLevelFolder).toBe("example-plugin");
+    expect(result.files).toEqual(["example-plugin.php", "readme.txt"]);
+    expect((await readFile(result.zipPath)).length).toBeGreaterThan(0);
+  });
+
+  it("packs with caller-provided ignore patterns", async () => {
+    const root = await samplePlugin();
+    await mkdir(path.join(root, "assets", "videos"), { recursive: true });
+    await writeFile(path.join(root, "assets", "videos", "demo.mp4"), "");
+    await writeFile(path.join(root, "assets", "poster.jpg"), "");
+
+    const result = await createPluginPack(root, {
+      outputDir: path.join(root, "pack-output"),
+      ignore: ["assets/**/*.mp4"]
+    });
+
+    expect(result.files).toEqual(["assets/poster.jpg", "example-plugin.php", "readme.txt"]);
+  });
+
+  it("summarizes pack results for JSON output", async () => {
+    const root = await samplePlugin();
+    const result = await createPluginPack(root, { outputDir: path.join(root, "pack-output") });
+    const summary = summarizePackResult(result, skippedPackValidation());
+
+    expect(summary).toMatchObject({
+      zipPath: path.join(root, "pack-output", "example-plugin.zip"),
+      topLevelFolder: "example-plugin",
+      fileCount: 2,
+      files: ["example-plugin.php", "readme.txt"],
+      validation: {
+        skipped: true,
+        readmeFindings: [],
+        pluginCheckFindings: []
+      }
+    });
+    expect(summary.sizeBytes).toBeGreaterThan(0);
+  });
+
+  it("validates readme and runs Plugin Check before packing", async () => {
+    const root = await samplePlugin();
+    const project = await discoverPluginProject(root);
+    const calls: string[] = [];
+    const validation = await validatePluginPack(
+      project,
+      {
+        ignore: ["assets/**/*.mp4"],
+        skipReadmeValidator: true,
+        wpPath: "/tmp/wordpress"
+      },
+      {
+        validateReadmeFile: async (readmePath, options) => {
+          calls.push(`readme:${path.basename(readmePath)}:${String(options.skipRemote)}`);
+          return { skippedRemote: true, findings: [] };
+        },
+        stagePluginDirectory: async (_project, options) => {
+          calls.push(`stage:${options.ignore?.join(",")}`);
+          return { path: "/tmp/staged/example-plugin", files: [] };
+        },
+        runPluginCheck: async (target, options) => {
+          calls.push(`plugin-check:${target}:${options.mode}:${options.wpPath}`);
+          return { skipped: false, available: true, findings: [] };
+        }
+      }
+    );
+
+    expect(calls).toEqual([
+      "readme:readme.txt:true",
+      "stage:assets/**/*.mp4",
+      "plugin-check:/tmp/staged/example-plugin:new:/tmp/wordpress"
+    ]);
+    expect(validation).toEqual({
+      skipped: false,
+      readmeFindings: [],
+      pluginCheckFindings: []
+    });
+  });
+
+  it("reports missing readme while still running Plugin Check validation", async () => {
+    const root = await samplePlugin({ readme: false });
+    const project = await discoverPluginProject(root);
+    let pluginCheckRan = false;
+
+    const validation = await validatePluginPack(project, {}, {
+      stagePluginDirectory: async () => ({ path: "/tmp/staged/example-plugin", files: [] }),
+      runPluginCheck: async () => {
+        pluginCheckRan = true;
+        return { skipped: false, available: true, findings: [] };
+      }
+    });
+
+    expect(pluginCheckRan).toBe(true);
+    expect(validation.readmeFindings).toEqual([
+      {
+        severity: "error",
+        code: "readme.missing",
+        message: "WordPress.org packages require a readme.txt file."
+      }
+    ]);
+  });
 });
 
 describe("version bumps", () => {
@@ -110,7 +217,7 @@ describe("version bumps", () => {
   });
 });
 
-async function samplePlugin(): Promise<string> {
+async function samplePlugin(options: { readme?: boolean } = {}): Promise<string> {
   const root = await mkdtemp(path.join(tmpdir(), "pressship-plugin-"));
   await writeFile(
     path.join(root, "example-plugin.php"),
@@ -123,9 +230,10 @@ async function samplePlugin(): Promise<string> {
  */
 `
   );
-  await writeFile(
-    path.join(root, "readme.txt"),
-    `=== Example Plugin ===
+  if (options.readme !== false) {
+    await writeFile(
+      path.join(root, "readme.txt"),
+      `=== Example Plugin ===
 Contributors: example
 Tags: example, tools
 Requires at least: 6.0
@@ -137,7 +245,8 @@ License: GPLv2 or later
 == Description ==
 Does example things.
 `
-  );
+    );
+  }
 
   return root;
 }

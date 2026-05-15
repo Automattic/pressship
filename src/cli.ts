@@ -3,6 +3,8 @@ import { Command } from "commander";
 import { login } from "./auth/login.js";
 import { logout } from "./auth/logout.js";
 import { whoami, type WhoamiOptions } from "./auth/whoami.js";
+import { pack, type PackOptions } from "./package/pack.js";
+import { publish, type PublishOptions } from "./wordpress-org/publish.js";
 import { submit, type SubmitOptions } from "./wordpress-org/submit.js";
 import { status, type StatusOptions } from "./wordpress-org/state.js";
 import { release, type ReleaseOptions } from "./svn/release.js";
@@ -30,6 +32,38 @@ program
   .description("Print the WordPress.org username for the saved login session.")
   .option("--json", "Print account details as JSON")
   .action((options: WhoamiOptions) => run(() => whoami(options))());
+
+program
+  .command("publish")
+  .description("Submit for review or release an approved plugin, similar to npm publish.")
+  .argument("[plugin-path]", "Path to the WordPress plugin directory")
+  .option("--submit", "Force WordPress.org review submission")
+  .option("--release", "Force WordPress.org SVN release")
+  .option("--dry-run", "Run the selected publish flow without uploading or committing")
+  .option("--skip-plugin-check", "Skip `wp plugin check` for submit flows")
+  .option("--skip-readme-validator", "Skip the remote WordPress.org readme validator for submit flows")
+  .option("--output-dir <path>", "Directory where the submission zip should be written")
+  .option("--wp-path <path>", "WordPress installation path for `wp plugin check`")
+  .option("--slug <slug>", "Approved WordPress.org plugin slug for release detection or release")
+  .option("--version <version>", "Version tag to create for release")
+  .option("--svn-dir <path>", "Local SVN working copy directory for release")
+  .option("--username <username>", "WordPress.org SVN username for release")
+  .option("-m, --message <message>", "SVN commit message for release")
+  .option("--ignore <glob>", "Ignore files in the package; repeat for multiple globs", collectValues, [])
+  .option("-y, --yes", "Continue without interactive confirmations where possible")
+  .action((pluginPath: string | undefined, options: PublishOptions) => run(() => publish(pluginPath, options))());
+
+program
+  .command("pack")
+  .description("Create a WordPress-installable plugin zip, similar to npm pack.")
+  .argument("[plugin-path]", "Path to the WordPress plugin directory")
+  .option("--output-dir <path>", "Directory where the plugin zip should be written")
+  .option("--ignore <glob>", "Ignore files in the package; repeat for multiple globs", collectValues, [])
+  .option("--no-validate", "Create the zip without readme validation or Plugin Check")
+  .option("--skip-readme-validator", "Skip the remote WordPress.org readme validator")
+  .option("--wp-path <path>", "WordPress installation path for `wp plugin check`")
+  .option("--json", "Print package details as JSON")
+  .action((pluginPath: string | undefined, options: PackOptions) => run(() => pack(pluginPath, options))());
 
 program
   .command("submit")

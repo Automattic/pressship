@@ -22,8 +22,8 @@ It is designed to make WordPress plugin publishing feel closer to npm package pu
 
 ```bash
 npx pressship login
-npx pressship submit ./my-plugin --dry-run
-npx pressship submit ./my-plugin
+npx pressship publish ./my-plugin --dry-run
+npx pressship publish ./my-plugin
 ```
 
 ## Why Pressship?
@@ -40,6 +40,7 @@ Pressship automates that workflow while still using WordPress.org's existing rev
 - `readme.txt` parsing and local validation.
 - WordPress.org readme validator automation.
 - WordPress-installable zip generation.
+- npm-style `publish` and `pack` commands.
 - Managed WordPress.org Plugin Check setup and execution.
 - Current WordPress.org submission state inspection.
 - Pending-plugin reupload support via the WordPress.org developer page.
@@ -59,16 +60,17 @@ npx pressship whoami
 # Inspect current submitted plugin state.
 npx pressship status ./my-plugin
 
-# Validate and package without uploading.
-npx pressship submit ./my-plugin --dry-run
+# Validate and package without uploading or committing.
+npx pressship publish ./my-plugin --dry-run
 
-# Submit or upload an updated zip for review.
-npx pressship submit ./my-plugin
+# Submit for review, reupload a pending plugin, or release an approved plugin.
+npx pressship publish ./my-plugin
 ```
 
-After a plugin is approved, release through WordPress.org SVN:
+You can still use the explicit WordPress.org review and SVN flows:
 
 ```bash
+npx pressship submit ./my-plugin
 npx pressship release ./my-plugin --slug my-plugin --username WpOrgUser
 ```
 
@@ -78,7 +80,7 @@ npx pressship release ./my-plugin --slug my-plugin --username WpOrgUser
 - A WordPress.org account.
 - Internet access for first-run browser and Plugin Check setup.
 - PHP for Pressship's managed Plugin Check environment when system WP-CLI is unavailable.
-- `svn` for `pressship release`.
+- `svn` for approved-plugin `pressship publish --release` and `pressship release`.
 
 Pressship installs Playwright Chromium automatically when browser automation first needs it.
 
@@ -90,6 +92,8 @@ pressship whoami [--json]
 pressship logout
 pressship status [plugin-path-or-slug] [--json]
 pressship version <patch|minor|major> [plugin-path]
+pressship pack [plugin-path] [options]
+pressship publish [plugin-path] [options]
 pressship submit [plugin-path] [options]
 pressship release [plugin-path] [options]
 ```
@@ -179,13 +183,61 @@ pressship version minor ./my-plugin
 pressship version major ./my-plugin
 ```
 
+## Publish Flow
+
+```bash
+pressship publish ./my-plugin
+```
+
+`publish` is the npm-style happy path. It discovers the plugin and then chooses the best WordPress.org publishing flow:
+
+- Use `submit` when a matching WordPress.org review submission is pending or reuploadable.
+- Use `release` when the plugin has an approved WordPress.org SVN repository and no pending review submission is found.
+- Ask whether to submit or release when Pressship cannot confidently choose.
+
+Useful options:
+
+```bash
+pressship publish ./my-plugin --dry-run
+pressship publish ./my-plugin --submit
+pressship publish ./my-plugin --release --username WpOrgUser
+pressship publish ./my-plugin --skip-plugin-check
+pressship publish ./my-plugin --skip-readme-validator
+pressship publish ./my-plugin --wp-path /path/to/wordpress
+pressship publish ./my-plugin --ignore "assets/**/*.mp4"
+pressship publish ./my-plugin --yes
+```
+
+Use `--submit` for the review-upload flow and `--release` for the approved-plugin SVN flow when you want to be explicit.
+
+## Pack Flow
+
+```bash
+pressship pack ./my-plugin
+```
+
+`pack` validates the plugin, runs Plugin Check, and creates the WordPress-installable `{slug}.zip` without uploading or committing. By default, it writes the zip to the current directory, similar to `npm pack`.
+
+Useful options:
+
+```bash
+pressship pack ./my-plugin --output-dir ./build
+pressship pack ./my-plugin --ignore "assets/**/*.mp4"
+pressship pack ./my-plugin --skip-readme-validator
+pressship pack ./my-plugin --wp-path /path/to/wordpress
+pressship pack ./my-plugin --no-validate
+pressship pack ./my-plugin --json
+```
+
+Use `--no-validate` only when you intentionally want to create the zip without readme validation or Plugin Check.
+
 ## Submit Flow
 
 ```bash
 pressship submit ./my-plugin
 ```
 
-`submit` runs the full WordPress.org review preparation flow:
+`submit` is the explicit WordPress.org review preparation flow. It is equivalent to `publish --submit`:
 
 1. Discover the plugin main file.
 2. Parse WordPress plugin headers.
@@ -247,7 +299,7 @@ pressship submit ./my-plugin --wp-path /path/to/wordpress
 pressship release ./my-plugin --slug my-plugin --username WpOrgUser
 ```
 
-WordPress.org initial review uses a zip upload. Approved plugin releases use SVN. Pressship keeps those workflows separate.
+WordPress.org initial review uses a zip upload. Approved plugin releases use SVN. Pressship keeps those workflows separate. `release` is equivalent to `publish --release`.
 
 `release` will:
 
@@ -306,6 +358,8 @@ You can also ignore files per command:
 
 ```bash
 pressship submit ./my-plugin --ignore "assets/**/*.mp4"
+pressship publish ./my-plugin --ignore "assets/**/*.mp4"
+pressship pack ./my-plugin --ignore "assets/**/*.mp4"
 pressship release ./my-plugin --ignore "assets/**/*.mp4"
 ```
 
@@ -400,6 +454,8 @@ Run local commands without publishing:
 npm run dev -- login
 npm run dev -- whoami
 npm run dev -- status
+npm run dev -- pack ./my-plugin
+npm run dev -- publish ./my-plugin --dry-run
 npm run dev -- submit ./my-plugin --dry-run
 npm run dev -- release ./my-plugin --dry-run
 ```

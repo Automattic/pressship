@@ -95,6 +95,16 @@ export function createReleaseCommandPlan(
   ];
 }
 
+export async function svnRepositoryExists(slug: string): Promise<boolean> {
+  const result = await execa("svn", ["info", `https://plugins.svn.wordpress.org/${slug}`], {
+    reject: false,
+    stdout: "pipe",
+    stderr: "pipe"
+  });
+
+  return result.exitCode === 0;
+}
+
 async function ensureWorkingCopy(slug: string, svnDir: string, username?: string): Promise<void> {
   await mkdir(path.dirname(svnDir), { recursive: true });
 
