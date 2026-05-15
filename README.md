@@ -1,8 +1,6 @@
 <p align="center">
-  <img src="assets/pressship.png" alt="Pressship" width="160">
+  <img src="assets/pressship.png" alt="Pressship" width="400">
 </p>
-
-<h1 align="center">Pressship</h1>
 
 <p align="center">
   A modern CLI for preparing, validating, submitting, and releasing WordPress.org plugins from the terminal.
