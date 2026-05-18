@@ -1,6 +1,7 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   accountFromLoggedInText,
+  detectWordPressOrgAccount,
   usernameFromLoggedInCookieValue,
   usernameFromProfileUrl
 } from "../src/auth/whoami.js";
@@ -54,5 +55,34 @@ describe("WordPress.org logged-in page text parsing", () => {
     expect(accountFromLoggedInText("You are logged in as example-user")).toMatchObject({
       username: "example-user"
     });
+  });
+});
+
+describe("WordPress.org account detection", () => {
+  it("does not trust a stale logged-in cookie when page verification fails", async () => {
+    const context = {
+      cookies: vi.fn(async () => [
+        {
+          name: "wporg_logged_in",
+          value: "example-user%7C123%7Ctoken%7Chash",
+          domain: ".wordpress.org"
+        }
+      ])
+    };
+    const page = {
+      goto: vi.fn(async () => undefined),
+      locator: vi.fn(() => ({
+        evaluateAll: vi.fn(async () => undefined),
+        innerText: vi.fn(async () => "Before you can upload a new plugin, please log in.")
+      }))
+    };
+
+    await expect(
+      detectWordPressOrgAccount(
+        context as unknown as Parameters<typeof detectWordPressOrgAccount>[0],
+        page as unknown as Parameters<typeof detectWordPressOrgAccount>[1]
+      )
+    ).rejects.toThrow("Saved WordPress.org session is not logged in. Run `pressship login` again.");
+    expect(context.cookies).not.toHaveBeenCalled();
   });
 });

@@ -1,4 +1,4 @@
-import { openBrowserSession, saveBrowserSession } from "./session.js";
+import { isLoggedIn, openBrowserSession, saveBrowserSession } from "./session.js";
 import {
   accountFromLoggedInCookie,
   accountFromLoggedInText,
@@ -12,7 +12,7 @@ const loginPollMs = 1_000;
 
 export async function login(): Promise<void> {
   ui.intro("Login to WordPress.org");
-  const { context, page } = await openBrowserSession({ headless: false });
+  const { context, page } = await openBrowserSession({ headless: false, useSavedSession: false });
 
   try {
     await page.goto("https://login.wordpress.org/", { waitUntil: "domcontentloaded" });
@@ -34,18 +34,18 @@ export async function login(): Promise<void> {
 
     while (Date.now() < deadline) {
       const cookieAccount = await accountFromLoggedInCookie(context);
-      if (cookieAccount) {
+      if (cookieAccount && (await sessionWorksOnWordPressOrg())) {
         return cookieAccount;
       }
 
       const linkAccount = await accountFromCurrentPageProfileLink(page).catch(() => undefined);
-      if (linkAccount) {
+      if (linkAccount && (await sessionWorksOnWordPressOrg())) {
         return linkAccount;
       }
 
       const pageText = await page.locator("body").innerText({ timeout: 1_000 }).catch(() => "");
       const textAccount = accountFromLoggedInText(pageText);
-      if (textAccount) {
+      if (textAccount && (await sessionWorksOnWordPressOrg())) {
         return textAccount;
       }
 
@@ -53,5 +53,14 @@ export async function login(): Promise<void> {
     }
 
     throw new Error("Timed out waiting for WordPress.org login. Run `pressship login` again.");
+  }
+
+  async function sessionWorksOnWordPressOrg(): Promise<boolean> {
+    const verificationPage = await context.newPage();
+    try {
+      return await isLoggedIn(verificationPage);
+    } finally {
+      await verificationPage.close();
+    }
   }
 }

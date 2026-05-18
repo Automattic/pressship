@@ -8,6 +8,7 @@ const require = createRequire(import.meta.url);
 
 export type BrowserSessionOptions = {
   headless?: boolean;
+  useSavedSession?: boolean;
 };
 
 export async function openBrowserSession(
@@ -17,7 +18,9 @@ export async function openBrowserSession(
   const browser = await launchChromium(options);
   const storageStatePath = getStorageStatePath();
   const context = await browser.newContext(
-    pathExists(storageStatePath) ? { storageState: storageStatePath } : undefined
+    options.useSavedSession !== false && pathExists(storageStatePath)
+      ? { storageState: storageStatePath }
+      : undefined
   );
   const page = await context.newPage();
 

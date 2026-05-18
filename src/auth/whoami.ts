@@ -43,11 +43,6 @@ export async function detectWordPressOrgAccount(
   context: BrowserContext,
   page?: Page
 ): Promise<WordPressOrgAccount> {
-  const cookieAccount = await accountFromLoggedInCookie(context);
-  if (cookieAccount) {
-    return cookieAccount;
-  }
-
   if (page) {
     const account = await accountFromCurrentPageProfileLink(page);
     if (account) {
@@ -59,6 +54,17 @@ export async function detectWordPressOrgAccount(
     if (navigatedAccount) {
       return navigatedAccount;
     }
+
+    const pageText = await page.locator("body").innerText({ timeout: 10_000 }).catch(() => "");
+    const textAccount = accountFromLoggedInText(pageText);
+    if (textAccount) {
+      return textAccount;
+    }
+  }
+
+  const cookieAccount = page ? undefined : await accountFromLoggedInCookie(context);
+  if (cookieAccount) {
+    return cookieAccount;
   }
 
   throw new Error("Saved WordPress.org session is not logged in. Run `pressship login` again.");
