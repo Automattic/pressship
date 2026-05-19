@@ -41,9 +41,14 @@ Pressship automates that workflow while still using WordPress.org's existing rev
 - npm-style `publish` and `pack` commands.
 - Managed WordPress.org Plugin Check setup and execution.
 - Current WordPress.org submission state inspection.
+- Local and hosted plugin info lookup.
+- Local WordPress Playground demos for plugin paths or hosted slugs.
+- Playground runtime selection from plugin WordPress/PHP requirements.
+- Quieter Playground demos with deprecation noise suppressed.
 - Pending-plugin reupload support via the WordPress.org developer page.
 - SVN release workflow for approved plugins.
 - Repeatable ignore globs and `.pressshipignore` support.
+- Docusaurus documentation site for GitHub Pages.
 - Colorful CLI output with progress indicators.
 
 ## Quick Start
@@ -57,6 +62,14 @@ npx pressship whoami
 
 # Inspect current submitted plugin state.
 npx pressship status ./my-plugin
+
+# Inspect local plugin metadata or hosted WordPress.org plugin info.
+npx pressship info ./my-plugin
+npx pressship info 16deza-table-cell-extras
+
+# Open a local WordPress Playground demo.
+npx pressship demo ./my-plugin
+npx pressship demo 16deza-table-cell-extras
 
 # Validate and package without uploading or committing.
 npx pressship publish ./my-plugin --dry-run
@@ -88,6 +101,8 @@ Pressship installs Playwright Chromium automatically when browser automation fir
 pressship login
 pressship whoami [--json]
 pressship logout
+pressship info [slug-or-path] [--json]
+pressship demo [slug-or-path] [options]
 pressship status [plugin-path-or-slug] [--json]
 pressship version <patch|minor|major> [plugin-path]
 pressship pack [plugin-path] [options]
@@ -113,6 +128,46 @@ pressship whoami
 pressship whoami --json
 pressship logout
 ```
+
+## Info Flow
+
+```bash
+pressship info
+pressship info ./my-plugin
+pressship info 16deza-table-cell-extras
+pressship info https://wordpress.org/plugins/16deza-table-cell-extras/
+pressship info 16deza-table-cell-extras --json
+```
+
+`info` shows detailed metadata for a local plugin path or hosted WordPress.org plugin. With no argument, it inspects the current directory.
+
+For local plugins it reports headers and readme metadata, including version, main file, readme path, text domain, requirements, stable tag, tags, contributors, and description.
+
+For hosted plugins it uses the public WordPress.org plugin info API and reports version, author, requirements, active installs, last updated date, rating, support status, tags, description, and download URL.
+
+## Demo Flow
+
+```bash
+pressship demo
+pressship demo ./my-plugin
+pressship demo 16deza-table-cell-extras
+pressship demo https://wordpress.org/plugins/16deza-table-cell-extras/
+```
+
+`demo` starts a local WordPress Playground server with the plugin loaded and activated. For local paths, Pressship mounts the plugin directory into Playground so local code changes are available. For hosted slugs or WordPress.org plugin URLs, Pressship creates a Blueprint that installs and activates the plugin from the WordPress.org directory.
+
+Pressship uses the plugin's required WordPress and PHP versions when they are declared; pass `--wp` or `--php` to override them. It also adds a small Playground compatibility mu-plugin before activation so plugins that expect WordPress admin plugin helpers can boot cleanly. PHP deprecation notices are suppressed in demo pages, while real warnings, errors, and fatal errors remain visible.
+
+Useful options:
+
+```bash
+pressship demo ./my-plugin --port 9401
+pressship demo ./my-plugin --wp 6.8 --php 8.3
+pressship demo ./my-plugin --reset
+pressship demo ./my-plugin --skip-browser
+```
+
+Under the hood, `demo` uses the official `@wp-playground/cli` package. The Playground server keeps running until you stop it with `Ctrl+C`.
 
 ## Status Flow
 
@@ -375,6 +430,7 @@ This includes:
 - Debug screenshots for failed browser automation.
 - Managed Plugin Check cache.
 - Managed WordPress core and SQLite setup.
+- Generated Playground demo blueprints.
 
 You can override the config directory:
 
@@ -436,6 +492,30 @@ pressship submit ./my-plugin --wp-path /path/to/wordpress
 
 The WordPress.org submission and reupload flows are browser automation over the logged-in developer page, not a documented public API. If WordPress.org changes the form, Pressship fails loudly and saves a debug screenshot under the config directory.
 
+## Documentation Site
+
+The Docusaurus documentation site lives in `website/`.
+
+Run it locally:
+
+```bash
+npm run docs:dev
+```
+
+Build the static site:
+
+```bash
+npm run docs:build
+```
+
+Preview the production build:
+
+```bash
+npm run docs:serve
+```
+
+GitHub Pages deployment is configured in `.github/workflows/docs.yml`. In the repository settings, set Pages to use GitHub Actions as the source.
+
 ## Development
 
 ```bash
@@ -444,6 +524,7 @@ npm run dev -- --help
 npm run typecheck
 npm test
 npm run build
+npm run docs:build
 ```
 
 Run local commands without publishing:

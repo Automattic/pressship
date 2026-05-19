@@ -8,6 +8,8 @@ import { publish, type PublishOptions } from "./wordpress-org/publish.js";
 import { submit, type SubmitOptions } from "./wordpress-org/submit.js";
 import { status, type StatusOptions } from "./wordpress-org/state.js";
 import { release, type ReleaseOptions } from "./svn/release.js";
+import { demo, type DemoOptions } from "./plugin/demo.js";
+import { info, type InfoOptions } from "./plugin/info.js";
 import { version } from "./plugin/version.js";
 
 const program = new Command();
@@ -32,6 +34,24 @@ program
   .description("Print the WordPress.org username for the saved login session.")
   .option("--json", "Print account details as JSON")
   .action((options: WhoamiOptions) => run(() => whoami(options))());
+
+program
+  .command("demo")
+  .description("Start a local WordPress Playground demo for a plugin path or WordPress.org slug.")
+  .argument("[slug-or-path]", "Local plugin path, WordPress.org plugin slug, or plugin URL")
+  .option("--port <port>", "Port for the local Playground server")
+  .option("--wp <version>", "WordPress version to use")
+  .option("--php <version>", "PHP version to use")
+  .option("--reset", "Reset the persisted Playground site before starting")
+  .option("--skip-browser", "Start the local server without opening a browser")
+  .action((target: string | undefined, options: DemoOptions) => run(() => demo(target, options))());
+
+program
+  .command("info")
+  .description("Show detailed info for a local plugin path or WordPress.org plugin slug.")
+  .argument("[slug-or-path]", "Local plugin path, WordPress.org plugin slug, or plugin URL")
+  .option("--json", "Print plugin info as JSON")
+  .action((target: string | undefined, options: InfoOptions) => run(() => info(target, options))());
 
 program
   .command("publish")

@@ -17,6 +17,9 @@
     "build": "tsc -p tsconfig.json",
     "browsers:install": "playwright install chromium",
     "dev": "tsx src/cli.ts",
+    "docs:build": "npm run build --prefix website",
+    "docs:dev": "npm run start --prefix website",
+    "docs:serve": "npm run serve --prefix website",
     "test": "vitest run",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
