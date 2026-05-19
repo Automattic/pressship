@@ -39,6 +39,39 @@
   pointer-events: none;
 }
 
+.heroWpFiligran,
+.heroPressshipFiligran {
+  position: absolute;
+  z-index: 0;
+  pointer-events: none;
+  user-select: none;
+  opacity: 0.045;
+  filter: grayscale(1);
+}
+
+.heroWpFiligran {
+  width: min(56vw, 760px);
+  height: auto;
+  left: max(-28vw, -390px);
+  top: 2.2rem;
+  color: var(--pp-foreground);
+  transform: rotate(-8deg);
+}
+
+.heroPressshipFiligran {
+  width: min(50vw, 680px);
+  height: auto;
+  right: max(-24vw, -340px);
+  top: 7.5rem;
+  transform: rotate(7deg);
+}
+
+[data-theme="dark"] .heroWpFiligran,
+[data-theme="dark"] .heroPressshipFiligran {
+  opacity: 0.06;
+  filter: grayscale(1) brightness(1.2);
+}
+
 [data-theme="dark"] .hero::before {
   opacity: 0.6;
 }
@@ -460,44 +493,70 @@
 
 .workflowGrid {
   list-style: none;
-  padding: 0;
+  position: relative;
+  padding: 0.75rem;
   margin: 0;
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 0.85rem;
+  gap: 0;
+  border: 1px solid var(--pp-border);
+  border-radius: var(--pp-radius-xl);
+  background:
+    linear-gradient(to bottom, color-mix(in oklch, var(--pp-card) 92%, var(--pp-muted)), var(--pp-card)),
+    var(--pp-card);
+  overflow: hidden;
+}
+
+.workflowGrid::before {
+  content: "";
+  position: absolute;
+  top: 3.45rem;
+  left: calc(12.5% + 0.75rem);
+  right: calc(12.5% + 0.75rem);
+  height: 1px;
+  background: linear-gradient(to right, transparent, var(--pp-border-strong), transparent);
+  pointer-events: none;
 }
 
 .workflowCard {
   position: relative;
-  padding: 1.4rem;
-  border: 1px solid var(--pp-border);
+  display: flex;
+  flex-direction: column;
+  min-height: 15rem;
+  padding: 1.35rem 1.25rem;
   border-radius: var(--pp-radius-lg);
-  background: var(--pp-card);
-  transition: border-color 160ms ease, transform 160ms ease, background 160ms ease;
+  background: transparent;
+  transition: background 160ms ease;
+}
+
+.workflowCard:not(:last-child) {
+  border-right: 1px solid var(--pp-border);
 }
 
 .workflowCard:hover {
-  border-color: var(--pp-border-strong);
-  transform: translateY(-1px);
+  background: color-mix(in oklch, var(--pp-muted) 72%, transparent);
 }
 
 .workflowHeader {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 1rem;
+  margin-bottom: 1.35rem;
 }
 
 .workflowIcon {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 2.1rem;
-  height: 2.1rem;
-  border: 1px solid var(--pp-border);
-  border-radius: var(--pp-radius-sm);
-  background: var(--pp-muted);
+  position: relative;
+  z-index: 1;
+  width: 2.45rem;
+  height: 2.45rem;
+  border: 1px solid var(--pp-border-strong);
+  border-radius: 999px;
+  background: var(--pp-card);
   color: var(--pp-foreground);
+  box-shadow: 0 0 0 6px var(--pp-card);
 }
 
 .workflowIcon svg {
@@ -506,6 +565,10 @@
 }
 
 .workflowIndex {
+  padding: 0.22rem 0.45rem;
+  border: 1px solid var(--pp-border);
+  border-radius: 999px;
+  background: var(--pp-muted);
   font-family: var(--ifm-font-family-monospace);
   font-size: 0.72rem;
   color: var(--pp-muted-foreground);
@@ -526,10 +589,13 @@
   color: var(--pp-muted-foreground);
   font-size: 0.9rem;
   line-height: 1.55;
+  flex: 1;
 }
 
 .workflowCmd {
-  display: inline-block;
+  display: block;
+  width: max-content;
+  max-width: 100%;
   padding: 0.3rem 0.55rem;
   background: var(--pp-muted);
   border: 1px solid var(--pp-border);
@@ -537,6 +603,9 @@
   color: var(--pp-foreground);
   font-family: var(--ifm-font-family-monospace);
   font-size: 0.78rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* ─────────── FEATURES ─────────── */
@@ -776,6 +845,22 @@
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .workflowGrid::before {
+    display: none;
+  }
+
+  .workflowCard:not(:last-child) {
+    border-right: 0;
+  }
+
+  .workflowCard:nth-child(odd) {
+    border-right: 1px solid var(--pp-border);
+  }
+
+  .workflowCard:nth-child(-n + 2) {
+    border-bottom: 1px solid var(--pp-border);
+  }
+
   .featureGrid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -789,6 +874,18 @@
 @media (max-width: 760px) {
   .hero {
     padding: 4rem 0 3rem;
+  }
+
+  .heroWpFiligran {
+    width: 92vw;
+    left: -58vw;
+    top: 1.5rem;
+  }
+
+  .heroPressshipFiligran {
+    width: 86vw;
+    right: -52vw;
+    top: 10rem;
   }
 
   .heroTitle {
@@ -805,6 +902,22 @@
 
   .workflowGrid {
     grid-template-columns: 1fr;
+  }
+
+  .workflowCard {
+    min-height: auto;
+  }
+
+  .workflowCard:nth-child(odd) {
+    border-right: 0;
+  }
+
+  .workflowCard:nth-child(-n + 2) {
+    border-bottom: 0;
+  }
+
+  .workflowCard:not(:last-child) {
+    border-bottom: 1px solid var(--pp-border);
   }
 
   .commandRow {
