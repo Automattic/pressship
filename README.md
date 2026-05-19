@@ -1,7 +1,7 @@
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="assets/pressship-dark.png">
-    <img src="assets/pressship.png" alt="Pressship" width="400" />
+    <source media="(prefers-color-scheme: dark)" srcset="assets/pressship-square-dark.png">
+    <img src="assets/pressship-square.png" alt="Pressship" width="120" />
   </picture>
 </p>
 
