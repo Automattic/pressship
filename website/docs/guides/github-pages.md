@@ -35,7 +35,7 @@ In GitHub, set **Settings -> Pages -> Build and deployment -> Source** to **GitH
 The Docusaurus config is set for this repository:
 
 ```ts
-url: "https://f.github.io",
+url: "https://blog.fka.dev",
 baseUrl: "/pressship/",
 organizationName: "f",
 projectName: "pressship",

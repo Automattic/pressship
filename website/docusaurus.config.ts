@@ -11,7 +11,7 @@ const config: Config = {
     v4: true
   },
 
-  url: "https://f.github.io",
+  url: "https://blog.fka.dev",
   baseUrl: "/pressship/",
   organizationName: "f",
   projectName: "pressship",
