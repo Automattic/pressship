@@ -1,232 +1,824 @@
+/* ============================================================
+   Pressship Home — shadcn "new-york" inspired
+   Restrained type, thin borders, mono accents, dark-first.
+   ============================================================ */
+
+.main {
+  background: var(--pp-background);
+  color: var(--pp-foreground);
+}
+
+/* ─────────── HERO ─────────── */
+
 .hero {
-  padding: 5rem 0 4rem;
+  position: relative;
+  padding: 6rem 0 4rem;
+  border-bottom: 1px solid var(--pp-border);
+  overflow: hidden;
+  background:
+    radial-gradient(ellipse 80% 50% at 50% 0%, oklch(0.55 0.22 264 / 0.08), transparent 70%);
 }
 
-.heroGrid {
-  display: grid;
-  grid-template-columns: minmax(0, 0.95fr) minmax(360px, 1.05fr);
-  gap: 3rem;
+[data-theme="dark"] .hero {
+  background:
+    radial-gradient(ellipse 80% 50% at 50% 0%, oklch(0.78 0.18 264 / 0.1), transparent 70%);
+}
+
+.hero::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(to right, var(--pp-border) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--pp-border) 1px, transparent 1px);
+  background-size: 56px 56px;
+  mask-image: radial-gradient(ellipse 60% 50% at 50% 0%, black, transparent 70%);
+  -webkit-mask-image: radial-gradient(ellipse 60% 50% at 50% 0%, black, transparent 70%);
+  opacity: 0.4;
+  pointer-events: none;
+}
+
+[data-theme="dark"] .hero::before {
+  opacity: 0.6;
+}
+
+.heroInner {
+  position: relative;
+  max-width: 920px;
+  margin: 0 auto;
+  text-align: center;
+}
+
+/* ─── Hero skill install (replaces the old badge link) ─── */
+
+.heroSkill {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.65rem;
+  max-width: 100%;
+  margin: 0 auto 2rem;
+  text-align: left;
+}
+
+.heroSkillLabel {
+  display: inline-flex;
   align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  font-family: var(--ifm-font-family-monospace);
+  font-size: 0.72rem;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--pp-muted-foreground);
 }
 
-.heroCopy {
-  min-width: 0;
+.heroSkillLabel svg {
+  width: 0.78rem;
+  height: 0.78rem;
 }
 
-.logo {
-  width: min(420px, 100%);
-  height: auto;
-  display: block;
-  margin-bottom: 2rem;
+.heroSkillBar {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.7rem;
+  padding: 0.55rem 0.55rem 0.55rem 0.95rem;
+  border: 1px solid var(--pp-border);
+  border-radius: 999px;
+  background: var(--pp-card);
+  font-family: var(--ifm-font-family-monospace);
+  font-size: 0.88rem;
+  transition: border-color 140ms ease, background 140ms ease;
 }
 
-.title {
-  max-width: 760px;
+.heroSkillBar:hover {
+  border-color: var(--pp-border-strong);
+  background: var(--pp-muted);
+}
+
+.heroSkillPrompt {
+  color: var(--pp-primary);
+  user-select: none;
+  font-weight: 600;
+}
+
+.heroSkillCommand {
+  background: transparent;
+  border: 0;
+  padding: 0;
+  color: var(--pp-foreground);
+  font-family: inherit;
+  font-size: inherit;
+  white-space: nowrap;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.heroSkillCommand::-webkit-scrollbar {
+  display: none;
+}
+
+.heroSkillCopy {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.35rem 0.7rem;
+  border: 1px solid var(--pp-border);
+  border-radius: 999px;
+  background: var(--pp-background);
+  color: var(--pp-muted-foreground);
+  font-family: var(--ifm-font-family-base);
+  font-size: 0.78rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: color 140ms ease, border-color 140ms ease, background 140ms ease;
+  flex: 0 0 auto;
+}
+
+.heroSkillCopy:hover {
+  color: var(--pp-foreground);
+  border-color: var(--pp-border-strong);
+  background: var(--pp-muted);
+}
+
+.heroSkillCopy svg {
+  width: 0.78rem;
+  height: 0.78rem;
+}
+
+.heroTitle {
   margin: 0;
-  font-size: 3.3rem;
-  line-height: 1.05;
+  font-family: var(--pp-font-serif);
+  font-size: clamp(2.6rem, 6vw, 4.5rem);
+  font-weight: 600;
+  line-height: 1.04;
+  letter-spacing: -0.012em;
+  color: var(--pp-foreground);
+  font-feature-settings: "kern", "liga", "calt", "onum";
 }
 
-.subtitle {
-  max-width: 680px;
-  margin: 1.25rem 0 0;
-  font-size: 1.22rem;
-  color: var(--ifm-color-emphasis-700);
+.heroTitleAccent {
+  display: inline-block;
+  font-family: var(--pp-font-mono);
+  font-style: normal;
+  font-weight: 500;
+  font-size: 0.78em;
+  letter-spacing: -0.02em;
+  color: var(--pp-foreground);
+  vertical-align: baseline;
+  position: relative;
 }
 
-.buttons {
+.heroTitleAccent::after {
+  content: "";
+  display: inline-block;
+  width: 0.55ch;
+  height: 0.95em;
+  margin-left: 0.18em;
+  background: var(--pp-primary);
+  vertical-align: -0.14em;
+  animation: pp-caret-blink 1.4s ease-in-out infinite;
+  will-change: opacity;
+}
+
+@keyframes pp-caret-blink {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .heroTitleAccent::after {
+    animation: none;
+    opacity: 1;
+  }
+}
+
+.heroSubtitle {
+  max-width: 640px;
+  margin: 1.5rem auto 0;
+  font-size: 1.1rem;
+  line-height: 1.6;
+  color: var(--pp-muted-foreground);
+}
+
+.heroActions {
   display: flex;
-  gap: 0.75rem;
+  gap: 0.6rem;
+  justify-content: center;
   margin-top: 2rem;
   flex-wrap: wrap;
 }
 
-.skillCard {
-  max-width: 680px;
-  margin-top: 1.5rem;
-  padding: 1rem;
-  border: 1px solid var(--ifm-color-emphasis-200);
-  border-radius: 12px;
-  background:
-    linear-gradient(135deg, rgba(56, 88, 233, 0.08), rgba(87, 204, 153, 0.08)),
-    var(--ifm-background-surface-color);
-  box-shadow: 0 16px 44px rgba(16, 19, 33, 0.08);
-}
-
-.skillEyebrow {
-  margin-bottom: 0.35rem;
-  color: var(--ifm-color-primary);
-  font-size: 0.78rem;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-.skillCard p {
-  margin: 0;
-  color: var(--ifm-color-emphasis-700);
-}
-
-.skillCard pre {
-  margin: 0.85rem 0;
-  padding: 0.85rem 1rem;
-  border-radius: 8px;
-  background: #101321;
-  color: #eef2ff;
-  overflow-x: auto;
-}
-
-.skillCard code {
-  font-size: 0.9rem;
-}
-
-.skillHint {
-  font-size: 0.9rem;
-}
+/* ─────────── TERMINAL (sequential session, no tabs) ─────────── */
 
 .terminal {
+  position: relative;
+  margin: 3rem auto 0;
+  max-width: 880px;
+  text-align: left;
+  border: 1px solid oklch(1 0 0 / 0.08);
+  border-radius: var(--pp-radius-lg);
+  background: oklch(0.16 0 0);
   overflow: hidden;
-  border: 1px solid var(--ifm-color-emphasis-200);
-  border-radius: 8px;
-  background: #101321;
-  color: #eef2ff;
-  box-shadow: 0 24px 70px rgba(16, 19, 33, 0.18);
+  box-shadow: 0 30px 80px -30px oklch(0 0 0 / 0.55);
 }
 
-.terminalBar {
+[data-theme="light"] .terminal,
+:root:not([data-theme="dark"]) .terminal {
+  box-shadow: 0 30px 80px -30px oklch(0 0 0 / 0.25);
+}
+
+.terminalChrome {
   display: flex;
-  gap: 0.5rem;
-  padding: 0.9rem 1rem;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-  background: #171b2b;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.7rem 1rem;
+  background: oklch(0.2 0 0);
+  border-bottom: 1px solid oklch(1 0 0 / 0.06);
 }
 
-.terminalBar span {
-  width: 0.72rem;
-  height: 0.72rem;
+.dotR,
+.dotY,
+.dotG {
+  width: 0.6rem;
+  height: 0.6rem;
   border-radius: 999px;
-  background: #ff6b6b;
+  display: inline-block;
 }
 
-.terminalBar span:nth-child(2) {
-  background: #ffd166;
+.dotR {
+  background: oklch(0.7 0.18 25);
 }
 
-.terminalBar span:nth-child(3) {
-  background: #57cc99;
+.dotY {
+  background: oklch(0.82 0.16 85);
+}
+
+.dotG {
+  background: oklch(0.74 0.18 152);
+}
+
+.terminalCaption {
+  margin-left: 0.85rem;
+  font-family: var(--ifm-font-family-monospace);
+  font-size: 0.76rem;
+  color: oklch(1 0 0 / 0.45);
 }
 
 .terminalBody {
-  padding: 1.25rem;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
-  font-size: 0.95rem;
-  line-height: 1.6;
+  padding: 1.5rem 1.65rem 1.6rem;
+  font-family: var(--ifm-font-family-monospace);
+  font-size: 0.88rem;
+  line-height: 1.7;
+  color: oklch(0.985 0 0);
 }
 
-.terminalStep + .terminalStep {
-  margin-top: 1rem;
+.terminalBlock + .terminalBlock {
+  /* spacing between sequential commands is provided by the divider */
+}
+
+.terminalLine {
+  display: flex;
+  align-items: baseline;
+  gap: 0.55rem;
+  margin-bottom: 0.45rem;
 }
 
 .prompt {
-  color: #8ea0ff;
+  color: oklch(0.78 0.18 264);
+  user-select: none;
 }
 
-.output {
-  margin-top: 0.15rem;
-  color: #a8f0c6;
+.cmd {
+  color: oklch(0.985 0 0);
 }
 
-.features {
-  padding: 1rem 0 4rem;
+.terminalOut {
+  /* IMPORTANT: must not inherit doc-page <pre> borders. */
+  margin: 0;
+  padding: 0 0 0 1rem;
+  background: transparent !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  color: oklch(0.985 0 0);
+  white-space: pre;
+  font-family: var(--ifm-font-family-monospace);
+  font-size: 0.84rem;
+  line-height: 1.85;
+  overflow-x: auto;
 }
 
-.grid {
+.terminalOut::-webkit-scrollbar {
+  height: 6px;
+}
+
+.terminalOut::-webkit-scrollbar-thumb {
+  background: oklch(1 0 0 / 0.1);
+  border-radius: 999px;
+}
+
+.terminalDivider {
+  height: 1px;
+  margin: 1.1rem -0.15rem 1.1rem;
+  background: linear-gradient(to right, transparent, oklch(1 0 0 / 0.08) 20%, oklch(1 0 0 / 0.08) 80%, transparent);
+}
+
+.muted {
+  color: oklch(1 0 0 / 0.42);
+}
+
+.ok {
+  color: oklch(0.78 0.16 152);
+}
+
+.warn {
+  color: oklch(0.82 0.16 85);
+}
+
+.link {
+  color: oklch(0.84 0.14 264);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.heroLogos {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.6rem;
+  margin: 3rem auto 0;
+  color: var(--pp-muted-foreground);
+  font-size: 0.85rem;
+  flex-wrap: wrap;
+  max-width: 640px;
+  text-align: center;
+}
+
+.heroLogos img {
+  width: 1.5rem;
+  height: 1.5rem;
+  object-fit: contain;
+  opacity: 0.85;
+}
+
+.heroLogosPlus {
+  color: var(--pp-muted-foreground);
+  font-size: 0.85rem;
+  font-weight: 400;
+  opacity: 0.5;
+  user-select: none;
+}
+
+.heroWpMark {
+  width: 1.5rem;
+  height: 1.5rem;
+  color: var(--pp-muted-foreground);
+  opacity: 0.85;
+  margin-right: 0.25rem;
+}
+
+/* ─────────── SECTIONS ─────────── */
+
+.section {
+  padding: 5rem 0;
+  border-bottom: 1px solid var(--pp-border);
+}
+
+.sectionHead {
+  max-width: 720px;
+  margin: 0 auto 3rem;
+  text-align: center;
+}
+
+.sectionLabel {
+  display: inline-block;
+  padding: 0.25rem 0.6rem;
+  margin-bottom: 0.85rem;
+  border: 1px solid var(--pp-border);
+  border-radius: 999px;
+  background: var(--pp-card);
+  color: var(--pp-muted-foreground);
+  font-family: var(--ifm-font-family-monospace);
+  font-size: 0.72rem;
+  font-weight: 500;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.sectionTitle {
+  margin: 0;
+  font-family: var(--pp-font-serif);
+  font-size: clamp(1.85rem, 3.5vw, 2.7rem);
+  font-weight: 600;
+  letter-spacing: -0.008em;
+  line-height: 1.12;
+  color: var(--pp-foreground);
+  font-feature-settings: "kern", "liga", "onum";
+}
+
+.sectionSubtitle {
+  margin: 0.85rem auto 0;
+  max-width: 580px;
+  color: var(--pp-muted-foreground);
+  font-size: 1.02rem;
+  line-height: 1.6;
+}
+
+.sectionSubtitle code {
+  font-size: 0.92em;
+  padding: 0.05rem 0.35rem;
+  background: var(--pp-muted);
+  border: 1px solid var(--pp-border);
+  border-radius: 6px;
+  color: var(--pp-foreground);
+}
+
+/* ─────────── WORKFLOW ─────────── */
+
+.workflowGrid {
+  list-style: none;
+  padding: 0;
+  margin: 0;
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 1rem;
+  gap: 0.85rem;
 }
 
-.feature {
-  border: 1px solid var(--ifm-color-emphasis-200);
-  border-radius: 8px;
-  padding: 1.35rem;
-  background: var(--ifm-background-surface-color);
+.workflowCard {
+  position: relative;
+  padding: 1.4rem;
+  border: 1px solid var(--pp-border);
+  border-radius: var(--pp-radius-lg);
+  background: var(--pp-card);
+  transition: border-color 160ms ease, transform 160ms ease, background 160ms ease;
 }
 
-.iconWrap {
-  width: 2.65rem;
-  height: 2.65rem;
+.workflowCard:hover {
+  border-color: var(--pp-border-strong);
+  transform: translateY(-1px);
+}
+
+.workflowHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 1rem;
+}
+
+.workflowIcon {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  margin-bottom: 1rem;
-  border-radius: 8px;
-  color: #ffffff;
-  background: var(--ifm-color-primary);
-  box-shadow: 0 10px 26px rgba(56, 88, 233, 0.22);
+  width: 2.1rem;
+  height: 2.1rem;
+  border: 1px solid var(--pp-border);
+  border-radius: var(--pp-radius-sm);
+  background: var(--pp-muted);
+  color: var(--pp-foreground);
 }
 
-.iconWrap svg {
-  width: 1.25rem;
-  height: 1.25rem;
+.workflowIcon svg {
+  width: 0.95rem;
+  height: 0.95rem;
 }
 
-.feature h2 {
-  font-size: 1.2rem;
-  margin-bottom: 0.6rem;
+.workflowIndex {
+  font-family: var(--ifm-font-family-monospace);
+  font-size: 0.72rem;
+  color: var(--pp-muted-foreground);
+  letter-spacing: 0.05em;
 }
 
-.feature p {
-  margin: 0;
-  color: var(--ifm-color-emphasis-700);
+.workflowTitle {
+  margin: 0 0 0.45rem;
+  font-family: var(--pp-font-serif);
+  font-size: 1.3rem;
+  font-weight: 600;
+  letter-spacing: -0.005em;
+  line-height: 1.2;
 }
 
-.detailList {
+.workflowText {
+  margin: 0 0 1rem;
+  color: var(--pp-muted-foreground);
+  font-size: 0.9rem;
+  line-height: 1.55;
+}
+
+.workflowCmd {
+  display: inline-block;
+  padding: 0.3rem 0.55rem;
+  background: var(--pp-muted);
+  border: 1px solid var(--pp-border);
+  border-radius: var(--pp-radius-sm);
+  color: var(--pp-foreground);
+  font-family: var(--ifm-font-family-monospace);
+  font-size: 0.78rem;
+}
+
+/* ─────────── FEATURES ─────────── */
+
+.featureGrid {
   display: grid;
-  gap: 0.45rem;
-  margin: 1rem 0 0;
-  padding: 0;
-  list-style: none;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1px;
+  border: 1px solid var(--pp-border);
+  border-radius: var(--pp-radius-lg);
+  background: var(--pp-border);
+  overflow: hidden;
 }
 
-.detailList li {
-  display: flex;
+.featureItem {
+  padding: 1.85rem 1.6rem 1.75rem;
+  background: var(--pp-card);
+  transition: background 160ms ease;
+}
+
+.featureItem:hover {
+  background: var(--pp-muted);
+}
+
+.featureIcon {
+  display: inline-flex;
   align-items: center;
-  gap: 0.5rem;
-  color: var(--ifm-color-emphasis-800);
-  font-size: 0.94rem;
+  justify-content: center;
+  width: 2.1rem;
+  height: 2.1rem;
+  margin-bottom: 1rem;
+  border: 1px solid var(--pp-border);
+  border-radius: var(--pp-radius-sm);
+  background: var(--pp-background);
+  color: var(--pp-foreground);
 }
 
-.detailList li::before {
-  content: "";
-  width: 0.42rem;
-  height: 0.42rem;
-  border-radius: 999px;
-  background: var(--ifm-color-primary);
-  flex: 0 0 auto;
+.featureIcon svg {
+  width: 0.95rem;
+  height: 0.95rem;
 }
 
-@media screen and (max-width: 996px) {
-  .hero {
-    padding: 3rem 0 2rem;
+.featureTitle {
+  margin: 0 0 0.5rem;
+  font-family: var(--pp-font-serif);
+  font-size: 1.2rem;
+  font-weight: 600;
+  letter-spacing: -0.005em;
+  line-height: 1.25;
+}
+
+.featureText {
+  margin: 0;
+  color: var(--pp-muted-foreground);
+  font-size: 0.9rem;
+  line-height: 1.55;
+}
+
+/* ─────────── COMMANDS LIST ─────────── */
+
+.commandsCard {
+  border: 1px solid var(--pp-border);
+  border-radius: var(--pp-radius-lg);
+  overflow: hidden;
+  background: var(--pp-card);
+}
+
+.commandRow {
+  display: grid;
+  grid-template-columns: 56px 240px 1fr 32px;
+  gap: 1.25rem;
+  align-items: center;
+  padding: 1rem 1.4rem;
+  border-bottom: 1px solid var(--pp-border);
+  color: var(--pp-foreground);
+  text-decoration: none;
+  transition: background 140ms ease;
+}
+
+.commandRow:hover {
+  background: var(--pp-muted);
+  text-decoration: none;
+  color: var(--pp-foreground);
+}
+
+.commandRow:last-child {
+  border-bottom: 0;
+}
+
+.commandNum {
+  font-family: var(--ifm-font-family-monospace);
+  font-size: 0.75rem;
+  color: var(--pp-muted-foreground);
+  letter-spacing: 0.05em;
+}
+
+.commandName {
+  background: transparent;
+  border: 0;
+  padding: 0;
+  font-family: var(--ifm-font-family-monospace);
+  font-size: 0.92rem;
+  color: var(--pp-foreground);
+  font-weight: 600;
+}
+
+.commandDesc {
+  color: var(--pp-muted-foreground);
+  font-size: 0.92rem;
+}
+
+.commandArrow {
+  width: 0.85rem;
+  height: 0.85rem;
+  color: var(--pp-muted-foreground);
+  justify-self: end;
+  transition: color 140ms ease, transform 140ms ease;
+}
+
+.commandRow:hover .commandArrow {
+  color: var(--pp-foreground);
+  transform: translate(2px, -2px);
+}
+
+/* ─────────── AGENT SKILL ─────────── */
+
+.skillCard {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.05fr);
+  gap: 2.5rem;
+  align-items: center;
+  padding: 2.5rem;
+  border: 1px solid var(--pp-border);
+  border-radius: var(--pp-radius-lg);
+  background: var(--pp-card);
+}
+
+.skillCopy .sectionLabel {
+  display: inline-flex;
+  align-items: center;
+}
+
+.skillTitle {
+  margin: 0.85rem 0 0;
+  font-family: var(--pp-font-serif);
+  font-size: 2rem;
+  font-weight: 600;
+  letter-spacing: -0.008em;
+  line-height: 1.15;
+}
+
+.skillText {
+  margin: 0.85rem 0 1.5rem;
+  color: var(--pp-muted-foreground);
+  font-size: 1rem;
+  line-height: 1.6;
+}
+
+.skillCommand {
+  padding: 1.4rem;
+  border: 1px solid oklch(1 0 0 / 0.06);
+  border-radius: var(--pp-radius-lg);
+  background: oklch(0.16 0 0);
+  color: oklch(0.985 0 0);
+}
+
+.skillCommandLabel {
+  font-family: var(--ifm-font-family-monospace);
+  font-size: 0.72rem;
+  color: oklch(1 0 0 / 0.5);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin-bottom: 0.75rem;
+}
+
+.skillCommandCode {
+  margin: 0;
+  padding: 0;
+  background: transparent;
+  color: oklch(0.985 0 0);
+  font-family: var(--ifm-font-family-monospace);
+  font-size: 0.9rem;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.skillHint {
+  margin: 1.25rem 0 0;
+  padding-top: 1rem;
+  border-top: 1px solid oklch(1 0 0 / 0.08);
+  font-size: 0.84rem;
+  color: oklch(1 0 0 / 0.55);
+}
+
+.skillHint code {
+  background: oklch(1 0 0 / 0.08);
+  color: oklch(0.985 0 0);
+  border: 0;
+  padding: 0.05rem 0.35rem;
+  border-radius: 4px;
+  font-size: 0.86rem;
+}
+
+/* ─────────── FINAL CTA ─────────── */
+
+.cta {
+  padding: 6rem 0 7rem;
+}
+
+.ctaInner {
+  max-width: 640px;
+  margin: 0 auto;
+  text-align: center;
+}
+
+.ctaTitle {
+  margin: 0;
+  font-family: var(--pp-font-serif);
+  font-size: clamp(2.1rem, 4vw, 3rem);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  line-height: 1.1;
+}
+
+.ctaSubtitle {
+  margin: 1rem auto 2rem;
+  color: var(--pp-muted-foreground);
+  font-size: 1.05rem;
+  line-height: 1.6;
+}
+
+/* ─────────── RESPONSIVE ─────────── */
+
+@media (max-width: 1100px) {
+  .workflowGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .heroGrid {
+  .featureGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .skillCard {
     grid-template-columns: 1fr;
     gap: 2rem;
   }
-
-  .title {
-    font-size: 2.35rem;
-  }
-
-  .grid {
-    grid-template-columns: 1fr;
-  }
 }
 
-@media screen and (min-width: 997px) and (max-width: 1240px) {
-  .grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+@media (max-width: 760px) {
+  .hero {
+    padding: 4rem 0 3rem;
+  }
+
+  .heroTitle {
+    font-size: clamp(2rem, 9vw, 2.8rem);
+  }
+
+  .section {
+    padding: 3.5rem 0;
+  }
+
+  .featureGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .workflowGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .commandRow {
+    grid-template-columns: 48px 1fr 24px;
+    gap: 0.75rem;
+    padding: 0.85rem 1rem;
+  }
+
+  .commandDesc {
+    grid-column: 1 / -1;
+    padding-left: calc(48px + 0.75rem);
+    margin-top: -0.25rem;
+    font-size: 0.85rem;
+  }
+
+  .commandName {
+    grid-column: 2 / 3;
+  }
+
+  .heroSkill {
+    width: 100%;
+  }
+
+  .heroSkillBar {
+    width: 100%;
+    font-size: 0.8rem;
+  }
+
+  .heroSkillCopy span {
+    display: none;
   }
 }
