@@ -24,7 +24,7 @@ const sidebars: SidebarsConfig = {
       type: "category",
       label: "Guides",
       collapsed: false,
-      items: ["guides/packaging", "guides/plugin-check", "guides/github-pages"]
+      items: ["guides/packaging", "guides/plugin-check", "guides/agent-skill", "guides/github-pages"]
     },
     "troubleshooting"
   ]

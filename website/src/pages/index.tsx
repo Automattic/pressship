@@ -4,7 +4,7 @@ import useBaseUrl from "@docusaurus/useBaseUrl";
 import Layout from "@theme/Layout";
 import Heading from "@theme/Heading";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faBoxArchive, faRocket, faVialCircleCheck } from "@fortawesome/free-solid-svg-icons";
+import { faBoxArchive, faRobot, faRocket, faVialCircleCheck } from "@fortawesome/free-solid-svg-icons";
 
 import styles from "./index.module.css";
 
@@ -33,6 +33,12 @@ const features = [
     icon: faVialCircleCheck,
     text: "Open local or hosted plugins in WordPress Playground with runtime versions inferred from plugin metadata.",
     details: ["Local mount", "Hosted install", "Quiet demo output"]
+  },
+  {
+    title: "Guide Agent Workflows",
+    icon: faRobot,
+    text: "Use the bundled publishing skill to keep automated plugin work cautious, repeatable, and reviewable.",
+    details: ["Dry-run first", "State-aware routing", "Clear final reports"]
   }
 ];
 
