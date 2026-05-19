@@ -9,6 +9,10 @@ import { faBoxArchive, faRobot, faRocket, faVialCircleCheck } from "@fortawesome
 import styles from "./index.module.css";
 
 const workflow = [
+  {
+    command: "npx skills add f/pressship --skill wordpress-plugin-publish -a codex",
+    output: "Installed wordpress-plugin-publish skill"
+  },
   { command: "pressship info ./my-plugin", output: "Version 1.4.0 · Requires WP 6.6 · Requires PHP 8.1" },
   { command: "pressship demo ./my-plugin --reset", output: "WordPress Playground ready at http://127.0.0.1:9400" },
   { command: "pressship pack ./my-plugin", output: "Created my-plugin.zip · 52 files · Plugin Check passed" },

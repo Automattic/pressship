@@ -12,6 +12,37 @@ Pressship includes an agent skill for cautious WordPress.org plugin publishing w
 
 The skill is designed for agents that help maintain plugins with Pressship. It turns the publishing process into a safer checklist instead of a loose sequence of commands.
 
+## Install The Skill
+
+You can install the skill with the open agent skills CLI. First, list the skills exposed by the Pressship repository:
+
+```bash
+npx skills add f/pressship --list
+```
+
+Install the publishing skill for a specific agent:
+
+```bash
+npx skills add f/pressship --skill wordpress-plugin-publish -a claude-code
+npx skills add f/pressship --skill wordpress-plugin-publish -a codex
+```
+
+For a global, non-interactive install, combine `--global`, `--agent`, and `--yes`:
+
+```bash
+npx skills add f/pressship --skill wordpress-plugin-publish --global --agent claude-code --yes
+```
+
+Useful `skills add` flags:
+
+- `--list` shows available skills without installing them.
+- `--skill wordpress-plugin-publish` installs only Pressship's publishing workflow skill.
+- `--agent <name>` targets a compatible agent, such as `claude-code` or `codex`.
+- `--global` installs to the user-level skills directory instead of the current project.
+- `--yes` skips confirmation prompts for repeatable setup scripts.
+
+See the [skills CLI reference](https://www.skills.sh/docs/cli) for the full option list.
+
 ## What It Enforces
 
 - Run a dry run before any submit, reupload, or release unless explicitly told otherwise.
