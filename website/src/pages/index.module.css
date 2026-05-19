@@ -106,8 +106,26 @@
 .feature {
   border: 1px solid var(--ifm-color-emphasis-200);
   border-radius: 8px;
-  padding: 1.25rem;
+  padding: 1.35rem;
   background: var(--ifm-background-surface-color);
+}
+
+.iconWrap {
+  width: 2.65rem;
+  height: 2.65rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 1rem;
+  border-radius: 8px;
+  color: #ffffff;
+  background: var(--ifm-color-primary);
+  box-shadow: 0 10px 26px rgba(56, 88, 233, 0.22);
+}
+
+.iconWrap svg {
+  width: 1.25rem;
+  height: 1.25rem;
 }
 
 .feature h2 {
@@ -118,6 +136,31 @@
 .feature p {
   margin: 0;
   color: var(--ifm-color-emphasis-700);
+}
+
+.detailList {
+  display: grid;
+  gap: 0.45rem;
+  margin: 1rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.detailList li {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--ifm-color-emphasis-800);
+  font-size: 0.94rem;
+}
+
+.detailList li::before {
+  content: "";
+  width: 0.42rem;
+  height: 0.42rem;
+  border-radius: 999px;
+  background: var(--ifm-color-primary);
+  flex: 0 0 auto;
 }
 
 @media screen and (max-width: 996px) {

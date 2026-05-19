@@ -3,6 +3,8 @@ import Link from "@docusaurus/Link";
 import useBaseUrl from "@docusaurus/useBaseUrl";
 import Layout from "@theme/Layout";
 import Heading from "@theme/Heading";
+import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
+import { faBoxArchive, faRocket, faVialCircleCheck } from "@fortawesome/free-solid-svg-icons";
 
 import styles from "./index.module.css";
 
@@ -16,15 +18,21 @@ const workflow = [
 const features = [
   {
     title: "Package With Confidence",
-    text: "Build installable plugin zips with readme validation, Plugin Check, and repeatable ignore rules."
+    icon: faBoxArchive,
+    text: "Build installable plugin zips with readme validation, Plugin Check, and repeatable ignore rules.",
+    details: ["Readme validation", "Plugin Check", "Clean zip output"]
   },
   {
     title: "Publish Clearly",
-    text: "Use one modernized publishing command, or choose explicit submit and release flows when needed."
+    icon: faRocket,
+    text: "Use one modernized publishing command, or choose explicit submit and release flows when needed.",
+    details: ["Review upload", "Pending reupload", "SVN release"]
   },
   {
     title: "Test In Playground",
-    text: "Open local or hosted plugins in WordPress Playground with runtime versions inferred from plugin metadata."
+    icon: faVialCircleCheck,
+    text: "Open local or hosted plugins in WordPress Playground with runtime versions inferred from plugin metadata.",
+    details: ["Local mount", "Hosted install", "Quiet demo output"]
   }
 ];
 
@@ -83,8 +91,16 @@ export default function Home(): ReactNode {
             <div className={styles.grid}>
               {features.map((feature) => (
                 <article className={styles.feature} key={feature.title}>
+                  <div className={styles.iconWrap} aria-hidden="true">
+                    <FontAwesomeIcon icon={feature.icon} />
+                  </div>
                   <Heading as="h2">{feature.title}</Heading>
                   <p>{feature.text}</p>
+                  <ul className={styles.detailList}>
+                    {feature.details.map((detail) => (
+                      <li key={detail}>{detail}</li>
+                    ))}
+                  </ul>
                 </article>
               ))}
             </div>
