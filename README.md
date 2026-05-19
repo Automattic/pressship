@@ -24,6 +24,18 @@ npx pressship publish ./my-plugin --dry-run
 npx pressship publish ./my-plugin
 ```
 
+If you use agent skills, install Pressship's publishing workflow skill:
+
+```bash
+npx skills add f/pressship --skill wordpress-plugin-publish -a codex
+```
+
+For other agents, replace `codex` with the target agent name, such as `claude-code`. To inspect available skills first, run:
+
+```bash
+npx skills add f/pressship --list
+```
+
 ## Why Pressship?
 
 Publishing a WordPress plugin to WordPress.org involves a lot of small steps: creating the right zip, validating `readme.txt`, running Plugin Check, logging into WordPress.org, uploading through the developer page, and later publishing releases through SVN.
