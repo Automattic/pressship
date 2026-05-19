@@ -73,6 +73,16 @@ export default function Home(): ReactNode {
                     Commands
                   </Link>
                 </div>
+                <div className={styles.skillCard}>
+                  <div className={styles.skillEyebrow}>Agent skill</div>
+                  <p>Install the bundled WordPress plugin publishing workflow for your coding agent.</p>
+                  <pre>
+                    <code>npx skills add f/pressship --skill wordpress-plugin-publish -a codex</code>
+                  </pre>
+                  <p className={styles.skillHint}>
+                    Replace <code>codex</code> with another supported agent name, such as <code>claude-code</code>.
+                  </p>
+                </div>
               </div>
 
               <div className={styles.terminal} aria-label="Example Pressship command line workflow">

@@ -41,6 +41,49 @@
   flex-wrap: wrap;
 }
 
+.skillCard {
+  max-width: 680px;
+  margin-top: 1.5rem;
+  padding: 1rem;
+  border: 1px solid var(--ifm-color-emphasis-200);
+  border-radius: 12px;
+  background:
+    linear-gradient(135deg, rgba(56, 88, 233, 0.08), rgba(87, 204, 153, 0.08)),
+    var(--ifm-background-surface-color);
+  box-shadow: 0 16px 44px rgba(16, 19, 33, 0.08);
+}
+
+.skillEyebrow {
+  margin-bottom: 0.35rem;
+  color: var(--ifm-color-primary);
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.skillCard p {
+  margin: 0;
+  color: var(--ifm-color-emphasis-700);
+}
+
+.skillCard pre {
+  margin: 0.85rem 0;
+  padding: 0.85rem 1rem;
+  border-radius: 8px;
+  background: #101321;
+  color: #eef2ff;
+  overflow-x: auto;
+}
+
+.skillCard code {
+  font-size: 0.9rem;
+}
+
+.skillHint {
+  font-size: 0.9rem;
+}
+
 .terminal {
   overflow: hidden;
   border: 1px solid var(--ifm-color-emphasis-200);
