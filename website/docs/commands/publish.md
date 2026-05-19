@@ -8,7 +8,7 @@ sidebar_position: 7
 pressship publish ./my-plugin
 ```
 
-`publish` is the npm-style happy path for WordPress.org plugins. It discovers the plugin and chooses the best publishing flow:
+`publish` is the modernized happy path for WordPress.org plugins. It discovers the plugin and chooses the best publishing flow:
 
 - use `submit` when a matching WordPress.org review submission is pending or reuploadable;
 - use `release` when the plugin has an approved WordPress.org SVN repository and no pending review submission is found;

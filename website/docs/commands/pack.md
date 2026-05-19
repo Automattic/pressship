@@ -8,7 +8,7 @@ sidebar_position: 6
 pressship pack ./my-plugin
 ```
 
-`pack` creates a WordPress-installable `{slug}.zip` without uploading or committing. By default, it writes the zip to the current directory, similar to `npm pack`.
+`pack` creates a WordPress-installable `{slug}.zip` without uploading or committing. By default, it writes the zip to the current directory.
 
 Unlike a plain zip command, `pack` validates by default:
 

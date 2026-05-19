@@ -15,7 +15,7 @@ npx playwright install chromium
 For local development:
 
 ```bash
-npm run browsers:install
+Run the `browsers:install` package script.
 ```
 
 ## Not Logged In

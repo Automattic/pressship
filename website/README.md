@@ -1,19 +1,19 @@
 # Pressship Documentation
 
-This directory contains the Docusaurus documentation site for Pressship.
+This directory contains the documentation site for Pressship.
 
 ## Local Development
 
 From the repository root:
 
 ```bash
-npm run docs:dev
+Run the `docs:dev` package script.
 ```
 
 Or from this directory:
 
 ```bash
-npm start
+Run the `start` package script.
 ```
 
 ## Build
@@ -21,13 +21,13 @@ npm start
 From the repository root:
 
 ```bash
-npm run docs:build
+Run the `docs:build` package script.
 ```
 
 Or from this directory:
 
 ```bash
-npm run build
+Run the `build` package script.
 ```
 
 The generated static site is written to `website/build`.

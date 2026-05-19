@@ -10,7 +10,7 @@ pressship version minor ./my-plugin
 pressship version major ./my-plugin
 ```
 
-`version` bumps local plugin metadata, similar to `npm version`.
+`version` bumps local plugin metadata from the command line.
 
 It updates:
 

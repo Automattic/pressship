@@ -1,33 +1,96 @@
 .hero {
   padding: 5rem 0 4rem;
-  text-align: center;
+}
+
+.heroGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 0.95fr) minmax(360px, 1.05fr);
+  gap: 3rem;
+  align-items: center;
+}
+
+.heroCopy {
+  min-width: 0;
 }
 
 .logo {
-  width: min(340px, 80vw);
+  width: min(420px, 100%);
   height: auto;
+  display: block;
   margin-bottom: 2rem;
 }
 
 .title {
-  max-width: 840px;
-  margin: 0 auto;
-  font-size: 3rem;
+  max-width: 760px;
+  margin: 0;
+  font-size: 3.3rem;
+  line-height: 1.05;
 }
 
 .subtitle {
-  max-width: 720px;
-  margin: 1.25rem auto 0;
-  font-size: 1.25rem;
+  max-width: 680px;
+  margin: 1.25rem 0 0;
+  font-size: 1.22rem;
   color: var(--ifm-color-emphasis-700);
 }
 
 .buttons {
   display: flex;
-  justify-content: center;
   gap: 0.75rem;
   margin-top: 2rem;
   flex-wrap: wrap;
+}
+
+.terminal {
+  overflow: hidden;
+  border: 1px solid var(--ifm-color-emphasis-200);
+  border-radius: 8px;
+  background: #101321;
+  color: #eef2ff;
+  box-shadow: 0 24px 70px rgba(16, 19, 33, 0.18);
+}
+
+.terminalBar {
+  display: flex;
+  gap: 0.5rem;
+  padding: 0.9rem 1rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  background: #171b2b;
+}
+
+.terminalBar span {
+  width: 0.72rem;
+  height: 0.72rem;
+  border-radius: 999px;
+  background: #ff6b6b;
+}
+
+.terminalBar span:nth-child(2) {
+  background: #ffd166;
+}
+
+.terminalBar span:nth-child(3) {
+  background: #57cc99;
+}
+
+.terminalBody {
+  padding: 1.25rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-size: 0.95rem;
+  line-height: 1.6;
+}
+
+.terminalStep + .terminalStep {
+  margin-top: 1rem;
+}
+
+.prompt {
+  color: #8ea0ff;
+}
+
+.output {
+  margin-top: 0.15rem;
+  color: #a8f0c6;
 }
 
 .features {
@@ -43,9 +106,18 @@
 .feature {
   border: 1px solid var(--ifm-color-emphasis-200);
   border-radius: 8px;
-  padding: 1rem;
+  padding: 1.25rem;
   background: var(--ifm-background-surface-color);
-  font-weight: 600;
+}
+
+.feature h2 {
+  font-size: 1.2rem;
+  margin-bottom: 0.6rem;
+}
+
+.feature p {
+  margin: 0;
+  color: var(--ifm-color-emphasis-700);
 }
 
 @media screen and (max-width: 996px) {
@@ -53,8 +125,13 @@
     padding: 3rem 0 2rem;
   }
 
+  .heroGrid {
+    grid-template-columns: 1fr;
+    gap: 2rem;
+  }
+
   .title {
-    font-size: 2.2rem;
+    font-size: 2.35rem;
   }
 
   .grid {

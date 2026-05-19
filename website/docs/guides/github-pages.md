@@ -4,35 +4,35 @@ sidebar_position: 3
 
 # GitHub Pages
 
-The documentation site lives in `website/` and is built with Docusaurus.
+The documentation site lives in `website/`.
 
 ## Local Development
 
 From the repository root:
 
 ```bash
-npm run docs:dev
+Run the `docs:dev` package script.
 ```
 
 Build the static site:
 
 ```bash
-npm run docs:build
+Run the `docs:build` package script.
 ```
 
 Serve the generated site locally:
 
 ```bash
-npm run docs:serve
+Run the `docs:serve` package script.
 ```
 
 ## Deployment
 
-The repository includes `.github/workflows/docs.yml`, which builds `website/` and publishes the generated Docusaurus output to GitHub Pages.
+The repository includes `.github/workflows/docs.yml`, which builds `website/` and publishes the generated static output to GitHub Pages.
 
 In GitHub, set **Settings -> Pages -> Build and deployment -> Source** to **GitHub Actions**.
 
-The Docusaurus config is set for this repository:
+The site config is set for this repository:
 
 ```ts
 url: "https://blog.fka.dev",

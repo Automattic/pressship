@@ -13,10 +13,10 @@
 </p>
 
 <p align="center">
-  <strong>WordPress.org plugin publishing, but closer to <code>npm publish</code>.</strong>
+  <strong>A modernized publishing workflow for WordPress.org plugins.</strong>
 </p>
 
-It is designed to make WordPress plugin publishing feel closer to npm package publishing:
+It is designed to modernize WordPress plugin publishing while keeping WordPress.org review and SVN release behavior explicit:
 
 ```bash
 npx pressship login
@@ -38,7 +38,7 @@ Pressship automates that workflow while still using WordPress.org's existing rev
 - `readme.txt` parsing and local validation.
 - WordPress.org readme validator automation.
 - WordPress-installable zip generation.
-- npm-style `publish` and `pack` commands.
+- Modernized `publish` and `pack` commands.
 - Managed WordPress.org Plugin Check setup and execution.
 - Current WordPress.org submission state inspection.
 - Local and hosted plugin info lookup.
@@ -48,7 +48,7 @@ Pressship automates that workflow while still using WordPress.org's existing rev
 - Pending-plugin reupload support via the WordPress.org developer page.
 - SVN release workflow for approved plugins.
 - Repeatable ignore globs and `.pressshipignore` support.
-- Docusaurus documentation site for GitHub Pages.
+- Documentation site for GitHub Pages.
 - Colorful CLI output with progress indicators.
 
 ## Quick Start
@@ -216,7 +216,7 @@ pressship version minor ./my-plugin
 pressship version major ./my-plugin
 ```
 
-`version` bumps local plugin metadata, similar to `npm version`.
+`version` bumps local plugin metadata from the command line.
 
 It updates:
 
@@ -242,7 +242,7 @@ pressship version major ./my-plugin
 pressship publish ./my-plugin
 ```
 
-`publish` is the npm-style happy path. It discovers the plugin and then chooses the best WordPress.org publishing flow:
+`publish` is the modernized happy path. It discovers the plugin and then chooses the best WordPress.org publishing flow:
 
 - Use `submit` when a matching WordPress.org review submission is pending or reuploadable.
 - Use `release` when the plugin has an approved WordPress.org SVN repository and no pending review submission is found.
@@ -269,7 +269,7 @@ Use `--submit` for the review-upload flow and `--release` for the approved-plugi
 pressship pack ./my-plugin
 ```
 
-`pack` validates the plugin, runs Plugin Check, and creates the WordPress-installable `{slug}.zip` without uploading or committing. By default, it writes the zip to the current directory, similar to `npm pack`.
+`pack` validates the plugin, runs Plugin Check, and creates the WordPress-installable `{slug}.zip` without uploading or committing. By default, it writes the zip to the current directory.
 
 Useful options:
 
@@ -453,7 +453,7 @@ npx playwright install chromium
 For local development:
 
 ```bash
-npm run browsers:install
+Run the `browsers:install` package script.
 ```
 
 ### Not Logged In
@@ -494,24 +494,24 @@ The WordPress.org submission and reupload flows are browser automation over the 
 
 ## Documentation Site
 
-The Docusaurus documentation site lives in `website/`.
+The documentation site lives in `website/`.
 
 Run it locally:
 
 ```bash
-npm run docs:dev
+Run the `docs:dev` package script.
 ```
 
 Build the static site:
 
 ```bash
-npm run docs:build
+Run the `docs:build` package script.
 ```
 
 Preview the production build:
 
 ```bash
-npm run docs:serve
+Run the `docs:serve` package script.
 ```
 
 GitHub Pages deployment is configured in `.github/workflows/docs.yml`. In the repository settings, set Pages to use GitHub Actions as the source.
@@ -519,30 +519,33 @@ GitHub Pages deployment is configured in `.github/workflows/docs.yml`. In the re
 ## Development
 
 ```bash
-npm install
-npm run dev -- --help
-npm run typecheck
-npm test
-npm run build
-npm run docs:build
+Install dependencies with your preferred Node package manager, then run:
+
+- `dev -- --help`
+- `typecheck`
+- `test`
+- `build`
+- `docs:build`
 ```
 
 Run local commands without publishing:
 
 ```bash
-npm run dev -- login
-npm run dev -- whoami
-npm run dev -- status
-npm run dev -- pack ./my-plugin
-npm run dev -- publish ./my-plugin --dry-run
-npm run dev -- submit ./my-plugin --dry-run
-npm run dev -- release ./my-plugin --dry-run
+Run these through the `dev` package script:
+
+- `login`
+- `whoami`
+- `status`
+- `pack ./my-plugin`
+- `publish ./my-plugin --dry-run`
+- `submit ./my-plugin --dry-run`
+- `release ./my-plugin --dry-run`
 ```
 
 Package smoke test:
 
 ```bash
-npm pack --dry-run
+Use your package manager's dry-run pack command.
 ```
 
 ## Security Notes

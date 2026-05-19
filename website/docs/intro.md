@@ -6,7 +6,7 @@ sidebar_position: 1
 
 Pressship is a CLI for preparing, validating, submitting, releasing, inspecting, and demoing WordPress.org plugins from the terminal.
 
-It keeps WordPress.org-specific behavior explicit while making the common path feel closer to npm package publishing:
+It keeps WordPress.org-specific behavior explicit while giving plugin authors a modernized publishing path:
 
 ```bash
 npx pressship login
