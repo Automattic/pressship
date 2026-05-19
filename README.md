@@ -1,5 +1,8 @@
 <p align="center">
-  <img src="assets/pressship.png" alt="Pressship" width="160" />
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/pressship-dark.png">
+    <img src="assets/pressship.png" alt="Pressship" width="400" />
+  </picture>
 </p>
 
 <h1 align="center">Pressship</h1>

@@ -286,6 +286,7 @@ hr {
 /* ─────────── NAVBAR ─────────── */
 
 .navbar {
+  z-index: 3000 !important;
   backdrop-filter: saturate(180%) blur(14px);
   -webkit-backdrop-filter: saturate(180%) blur(14px);
   border-bottom: 1px solid var(--pp-border);
@@ -341,13 +342,46 @@ hr {
 }
 
 .navbar-sidebar {
-  background: var(--pp-card);
+  position: fixed !important;
+  top: 0 !important;
+  bottom: 0 !important;
+  left: 0 !important;
+  z-index: 5000 !important;
+  height: 100vh !important;
+  height: 100dvh !important;
+  max-height: 100dvh !important;
+  display: flex !important;
+  flex-direction: column !important;
+  overflow: hidden !important;
+  background: var(--pp-card) !important;
   border-right: 1px solid var(--pp-border);
+  box-shadow: 24px 0 80px oklch(0 0 0 / 0.28);
+}
+
+.navbar-sidebar--show {
+  z-index: 5000 !important;
+}
+
+.navbar-sidebar__backdrop {
+  position: fixed !important;
+  inset: 0 !important;
+  z-index: 4990 !important;
+  background: oklch(0 0 0 / 0.55) !important;
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
 }
 
 .navbar-sidebar__brand {
+  flex: 0 0 auto !important;
   border-bottom: 1px solid var(--pp-border);
   box-shadow: none;
+}
+
+.navbar-sidebar__items {
+  flex: 1 1 auto !important;
+  min-height: 0 !important;
+  overflow-y: auto !important;
+  overscroll-behavior: contain;
 }
 
 /* Toggle button */

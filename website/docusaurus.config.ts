@@ -5,7 +5,7 @@ import type * as Preset from "@docusaurus/preset-classic";
 const config: Config = {
   title: "Pressship",
   tagline: "WordPress.org plugin publishing from the terminal.",
-  favicon: "img/pressship.png",
+  favicon: "img/pressship-square.png",
 
   future: {
     v4: true
@@ -47,7 +47,7 @@ const config: Config = {
   ],
 
   themeConfig: {
-    image: "img/pressship.png",
+    image: "img/pressship-square.png",
     colorMode: {
       defaultMode: "dark",
       respectPrefersColorScheme: true
@@ -55,7 +55,8 @@ const config: Config = {
     navbar: {
       logo: {
         alt: "Pressship",
-        src: "img/pressship.png"
+        src: "img/pressship.png",
+        srcDark: "img/pressship-dark.png"
       },
       items: [
         {

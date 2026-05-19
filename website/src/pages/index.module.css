@@ -28,6 +28,7 @@
   content: "";
   position: absolute;
   inset: 0;
+  z-index: 0;
   background-image:
     linear-gradient(to right, var(--pp-border) 1px, transparent 1px),
     linear-gradient(to bottom, var(--pp-border) 1px, transparent 1px);
@@ -44,6 +45,7 @@
 
 .heroInner {
   position: relative;
+  z-index: 1;
   max-width: 920px;
   margin: 0 auto;
   text-align: center;
@@ -362,9 +364,22 @@
   text-align: center;
 }
 
+.heroLogos picture {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.1rem;
+  height: 2.1rem;
+  padding: 0.38rem;
+  border: 1px solid var(--pp-border);
+  border-radius: var(--pp-radius-sm);
+  background: var(--pp-card);
+  box-sizing: border-box;
+}
+
 .heroLogos img {
-  width: 1.5rem;
-  height: 1.5rem;
+  width: 100%;
+  height: 100%;
   object-fit: contain;
   opacity: 0.85;
 }

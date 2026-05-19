@@ -147,7 +147,8 @@ const commands = [
 const skillCommand = "npx skills add f/pressship --skill wordpress-plugin-publish -a codex";
 
 export default function Home(): ReactNode {
-  const logoUrl = useBaseUrl("/img/pressship.png");
+  const logoUrl = useBaseUrl("/img/pressship-square.png");
+  const logoDarkUrl = useBaseUrl("/img/pressship-square-dark.png");
   const [copied, setCopied] = useState(false);
 
   const copySkill = async () => {
@@ -234,7 +235,10 @@ export default function Home(): ReactNode {
               </div>
 
               <div className={styles.heroLogos}>
-                <img src={logoUrl} alt="" aria-hidden="true" />
+                <picture>
+                  <source media="(prefers-color-scheme: dark)" srcSet={logoDarkUrl} />
+                  <img src={logoUrl} alt="" aria-hidden="true" />
+                </picture>
                 <span className={styles.heroLogosPlus}>×</span>
                 <svg
                   className={styles.heroWpMark}
