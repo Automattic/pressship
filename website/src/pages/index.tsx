@@ -28,7 +28,7 @@ type Block = {
 
 const session: Block[] = [
   {
-    command: "pressship status ./my-plugin",
+    command: "npx pressship status ./my-plugin",
     output: (
       <>
         <span className={styles.muted}>slug</span>
@@ -43,7 +43,7 @@ const session: Block[] = [
     )
   },
   {
-    command: "pressship pack ./my-plugin",
+    command: "npx pressship pack ./my-plugin",
     output: (
       <>
         <span className={styles.muted}>readme.txt</span>
@@ -58,7 +58,7 @@ const session: Block[] = [
     )
   },
   {
-    command: "pressship publish ./my-plugin",
+    command: "npx pressship publish ./my-plugin",
     output: (
       <>
         <span className={styles.muted}>Detected</span>
@@ -76,25 +76,25 @@ const workflow = [
     icon: faMagnifyingGlassChart,
     title: "Inspect",
     description: "Read local plugin metadata and WordPress.org review state at a glance.",
-    command: "pressship info ./my-plugin"
+    command: "npx pressship info ./my-plugin"
   },
   {
     icon: faBoxArchive,
     title: "Package",
     description: "Validate readme.txt, run Plugin Check, build an installable zip.",
-    command: "pressship pack ./my-plugin"
+    command: "npx pressship pack ./my-plugin"
   },
   {
     icon: faCloudArrowUp,
     title: "Publish",
     description: "Route to new submission, pending reupload, or SVN release.",
-    command: "pressship publish ./my-plugin"
+    command: "npx pressship publish ./my-plugin"
   },
   {
     icon: faPlay,
     title: "Demo",
     description: "Boot the plugin in WordPress Playground using its own requirements.",
-    command: "pressship demo ./my-plugin"
+    command: "npx pressship demo ./my-plugin"
   }
 ];
 
