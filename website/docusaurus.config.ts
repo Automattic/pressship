@@ -11,8 +11,8 @@ const config: Config = {
     v4: true
   },
 
-  url: "https://blog.fka.dev",
-  baseUrl: "/pressship/",
+  url: "https://pressship.org",
+  baseUrl: "/",
   organizationName: "f",
   projectName: "pressship",
   deploymentBranch: "gh-pages",

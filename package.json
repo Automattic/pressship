@@ -2,6 +2,7 @@
   "name": "pressship",
   "version": "0.1.3",
   "description": "Submit and release WordPress.org plugins from the command line.",
+  "homepage": "https://pressship.org",
   "bin": {
     "pressship": "dist/cli.js"
   },

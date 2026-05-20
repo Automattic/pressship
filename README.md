@@ -24,7 +24,7 @@
   <a href="#commands">Commands</a> ·
   <a href="#managed-plugin-check">Managed Plugin Check</a> ·
   <a href="#agent-skill">Agent skill</a> ·
-  <a href="https://blog.fka.dev/pressship/">Docs</a>
+  <a href="https://pressship.org">Docs</a>
 </p>
 
 ---
@@ -324,7 +324,7 @@ PRESSSHIP_CONFIG_DIR=/tmp/pressship pressship status
 
 ## Documentation
 
-Full docs live at **<https://blog.fka.dev/pressship/>**.
+Full docs live at **<https://pressship.org>**.
 
 The source is in [`website/`](./website) and runs as a standard Docusaurus site:
 

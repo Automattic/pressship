@@ -35,8 +35,8 @@ In GitHub, set **Settings -> Pages -> Build and deployment -> Source** to **GitH
 The site config is set for this repository:
 
 ```ts
-url: "https://blog.fka.dev",
-baseUrl: "/pressship/",
+url: "https://pressship.org",
+baseUrl: "/",
 organizationName: "f",
 projectName: "pressship",
 deploymentBranch: "gh-pages",
