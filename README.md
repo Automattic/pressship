@@ -80,7 +80,7 @@ That's it. Pressship handles browser-based login, packaging, readme validation, 
 - A **WordPress.org account**
 - **Internet access** for first-run browser and Plugin Check setup
 - **PHP** when Pressship needs to prepare its managed Plugin Check environment
-- **`svn`** for approved-plugin releases
+- **`svn`** for approved-plugin releases and `get` checkouts. If it is missing, Pressship can detect your OS and offer to install Subversion with Homebrew, apt, dnf, yum, pacman, zypper, apk, winget, or Chocolatey.
 
 Playwright Chromium is installed automatically the first time browser automation runs.
 
@@ -92,6 +92,8 @@ Playwright Chromium is installed automatically the first time browser automation
 | `pressship whoami` | Show the active WordPress.org account. |
 | `pressship logout` | Remove the saved WordPress.org session. |
 | `pressship info` | Inspect local plugin metadata or hosted WordPress.org plugin info. |
+| `pressship ls` | List plugins for the saved account or a public WordPress.org profile. |
+| `pressship get` | Checkout or update a WordPress.org plugin SVN working copy. |
 | `pressship status` | Read review state from the logged-in developer dashboard. |
 | `pressship version <patch\|minor\|major>` | Bump the plugin header version and readme stable tag together. |
 | `pressship pack` | Validate, run Plugin Check, and write an installable zip. |
@@ -137,6 +139,7 @@ pressship publish ./my-plugin --dry-run    # Validate + package, no upload
 pressship publish ./my-plugin --submit     # Force review submission
 pressship publish ./my-plugin --release    # Force SVN release
 pressship publish ./my-plugin --yes        # Skip confirmation prompts
+pressship publish ./my-plugin --release --no-install-svn
 ```
 
 Need fine-grained control? Use the explicit subcommands `submit` and `release`.
@@ -173,6 +176,31 @@ Or pass `--ignore <glob>` directly (repeat as needed):
 ```bash
 pressship publish ./my-plugin --ignore "assets/**/*.mp4" --ignore "docs/raw/**"
 ```
+
+## Listing WordPress.org plugins
+
+```bash
+pressship ls                  # Saved account, including SVN committer plugins
+pressship ls fatihkadirakin   # Public profile plugins for a username
+pressship ls --public         # Force the public profile view
+pressship ls --json
+```
+
+`ls` reads WordPress.org's plugin author archive. Public archives show plugins where the user is listed as a contributor. When you run `pressship ls` for the saved logged-in account, WordPress.org also includes plugins where that account has SVN committer access.
+
+## Getting a plugin SVN working copy
+
+```bash
+pressship get list-all-urls
+pressship get list-all-urls ./plugins/list-all-urls
+pressship get https://wordpress.org/plugins/list-all-urls/ ./list-all-urls
+pressship get list-all-urls --json
+pressship get list-all-urls --no-install-svn
+```
+
+`get` checks out `https://plugins.svn.wordpress.org/<slug>` into the destination directory. If the destination already contains an SVN working copy, Pressship runs `svn update` instead. After checkout or update, it prints repository details such as revision, last changed revision, trunk/assets availability, and tag count.
+
+If `svn` is not available, Pressship detects your operating system and package manager, then asks before installing Subversion. Use `--no-install-svn` to skip the installer helper and fail with manual instructions.
 
 ## Inspecting submission state
 
@@ -266,23 +294,34 @@ pressship publish ./my-plugin --skip-plugin-check
 For approved plugins:
 
 ```bash
-pressship release ./my-plugin --username WpOrgUser
+pressship release ./my-plugin
 ```
 
 Pressship will:
 
 1. Checkout or update `https://plugins.svn.wordpress.org/<slug>`.
 2. Sync packaged plugin files into `trunk/`.
-3. Create `tags/<version>` from `trunk/`.
-4. Show `svn status` and ask before committing.
-5. Commit.
+3. Sync `.wordpress-org/` assets into the SVN `assets/` directory when that folder exists.
+4. Create `tags/<version>` from `trunk/`.
+5. Show `svn status` and ask before committing.
+6. Commit with `--no-auth-cache` and a generated WordPress.org SVN password.
+
+For commits, Pressship uses the saved WordPress.org login to infer your SVN username. If no SVN password is saved yet, it points you to your WordPress.org SVN password page:
+
+```text
+https://profiles.wordpress.org/<username>/profile/edit/group/3/?screen=svn-password
+```
+
+Generate the password there, paste it into Pressship once, and it will be stored locally under `~/.config/pressship/svn-credentials.json` for future releases.
 
 ```bash
 pressship release ./my-plugin --slug my-plugin
 pressship release ./my-plugin --version 1.2.3
+pressship release ./my-plugin --username WpOrgUser
 pressship release ./my-plugin --message "Release 1.2.3"
 pressship release ./my-plugin --dry-run
 pressship release ./my-plugin --yes
+pressship release ./my-plugin --no-install-svn
 ```
 
 ## Agent skill
@@ -310,6 +349,7 @@ Pressship stores local state under your user config directory:
 Contents:
 
 - WordPress.org browser session storage
+- Saved WordPress.org SVN passwords for release commits
 - Debug screenshots from failed browser automation
 - Managed Plugin Check cache (WP-CLI phar, WordPress core, SQLite, Plugin Check plugin)
 - Generated Playground demo blueprints
@@ -408,8 +448,9 @@ The submission flow is browser automation over the logged-in developer page (not
 
 - Pressship **never stores your WordPress.org password**.
 - Login is completed in a real browser by you.
-- Only Playwright browser session state is stored locally.
-- `pressship logout` removes the local session; it does **not** revoke other active WordPress.org sessions.
+- Playwright browser session state is stored locally for WordPress.org browser automation.
+- If you run an SVN release, Pressship can store the generated WordPress.org SVN password locally so future commits can run non-interactively.
+- `pressship logout` removes the local browser session; it does **not** revoke other active WordPress.org sessions.
 
 ## Contributing
 

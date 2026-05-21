@@ -7,9 +7,11 @@ import { pack, type PackOptions } from "./package/pack.js";
 import { publish, type PublishOptions } from "./wordpress-org/publish.js";
 import { submit, type SubmitOptions } from "./wordpress-org/submit.js";
 import { status, type StatusOptions } from "./wordpress-org/state.js";
+import { getPlugin, type GetOptions } from "./svn/get.js";
 import { release, type ReleaseOptions } from "./svn/release.js";
 import { demo, type DemoOptions } from "./plugin/demo.js";
 import { info, type InfoOptions } from "./plugin/info.js";
+import { listPlugins, type ListOptions } from "./plugin/list.js";
 import { version } from "./plugin/version.js";
 
 const program = new Command();
@@ -54,6 +56,26 @@ program
   .action((target: string | undefined, options: InfoOptions) => run(() => info(target, options))());
 
 program
+  .command("ls")
+  .alias("list")
+  .description("List WordPress.org plugins for the saved account or a public profile username.")
+  .argument("[username]", "WordPress.org username. Defaults to the saved login user.")
+  .option("--public", "Use the public author archive even for the saved login user")
+  .option("--json", "Print plugin list as JSON")
+  .action((username: string | undefined, options: ListOptions) => run(() => listPlugins(username, options))());
+
+program
+  .command("get")
+  .description("Checkout or update a WordPress.org plugin SVN repository.")
+  .argument("<slug>", "WordPress.org plugin slug or plugin URL")
+  .argument("[path]", "Destination directory. Defaults to ./<slug>.")
+  .option("--json", "Print checkout details as JSON")
+  .option("--no-install-svn", "Do not try to install Subversion automatically when svn is missing")
+  .action((slug: string, destination: string | undefined, options: GetOptions) =>
+    run(() => getPlugin(slug, destination, options))()
+  );
+
+program
   .command("publish")
   .description("Submit for review or release an approved plugin, similar to npm publish.")
   .argument("[plugin-path]", "Path to the WordPress plugin directory")
@@ -67,8 +89,9 @@ program
   .option("--slug <slug>", "Approved WordPress.org plugin slug for release detection or release")
   .option("--version <version>", "Version tag to create for release")
   .option("--svn-dir <path>", "Local SVN working copy directory for release")
-  .option("--username <username>", "WordPress.org SVN username for release")
+  .option("--username <username>", "WordPress.org SVN username for release; defaults to the saved login user")
   .option("-m, --message <message>", "SVN commit message for release")
+  .option("--no-install-svn", "Do not try to install Subversion automatically when svn is missing")
   .option("--ignore <glob>", "Ignore files in the package; repeat for multiple globs", collectValues, [])
   .option("-y, --yes", "Continue without interactive confirmations where possible")
   .action((pluginPath: string | undefined, options: PublishOptions) => run(() => publish(pluginPath, options))());
@@ -119,11 +142,12 @@ program
   .option("--slug <slug>", "Approved WordPress.org plugin slug")
   .option("--version <version>", "Version tag to create")
   .option("--svn-dir <path>", "Local SVN working copy directory")
-  .option("--username <username>", "WordPress.org SVN username")
+  .option("--username <username>", "WordPress.org SVN username; defaults to the saved login user")
   .option("-m, --message <message>", "SVN commit message")
   .option("--ignore <glob>", "Ignore files in the SVN release; repeat for multiple globs", collectValues, [])
   .option("--dry-run", "Print the SVN command plan without changing SVN")
   .option("-y, --yes", "Commit without the final confirmation prompt")
+  .option("--no-install-svn", "Do not try to install Subversion automatically when svn is missing")
   .action((pluginPath: string | undefined, options: ReleaseOptions) => run(() => release(pluginPath, options))());
 
 await program.parseAsync(process.argv);

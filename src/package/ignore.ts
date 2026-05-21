@@ -10,6 +10,8 @@ export const defaultIgnorePatterns = [
   ".gitignore",
   ".github",
   ".github/**",
+  ".wordpress-org",
+  ".wordpress-org/**",
   ".idea",
   ".idea/**",
   ".vscode",

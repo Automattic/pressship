@@ -8,6 +8,7 @@ import {
   faArrowRight,
   faBoxArchive,
   faCheck,
+  faCodeBranch,
   faCloudArrowUp,
   faCopy,
   faMagnifyingGlassChart,
@@ -64,8 +65,11 @@ const session: Block[] = [
         <span className={styles.muted}>Detected</span>
         {"   "}my-plugin <span className={styles.muted}>v1.4.0</span>
         {"\n"}
-        <span className={styles.muted}>Upload</span>
-        {"     "}WordPress.org <span className={styles.ok}>queued</span>
+        <span className={styles.muted}>Route</span>
+        {"      "}WordPress.org SVN <span className={styles.ok}>release</span>
+        {"\n"}
+        <span className={styles.muted}>svn</span>
+        {"        "}available
       </>
     )
   }
@@ -87,7 +91,7 @@ const workflow = [
   {
     icon: faCloudArrowUp,
     title: "Publish",
-    description: "Route to new submission, pending reupload, or SVN release.",
+    description: "Route to new submission, pending reupload, or SVN release with setup checks.",
     command: "npx pressship publish ./my-plugin"
   },
   {
@@ -110,9 +114,9 @@ const features = [
     text: "Detects new submissions, pending reuploads, and approved SVN releases automatically."
   },
   {
-    icon: faTerminal,
-    title: "Terminal-native UX",
-    text: "Progress indicators, structured output, and predictable exit codes for humans and CI alike."
+    icon: faCodeBranch,
+    title: "SVN setup helper",
+    text: "For get and release flows, Pressship detects missing Subversion and offers the right install path for your OS."
   },
   {
     icon: faVialCircleCheck,
@@ -135,16 +139,28 @@ const commands = [
   { name: "login", description: "Open WordPress.org login in a browser and save the session." },
   { name: "whoami", description: "Show the active WordPress.org account." },
   { name: "info", description: "Inspect local plugin metadata or hosted plugin info." },
+  { name: "ls", description: "List profile plugins and saved-account SVN committer plugins." },
+  { name: "get", description: "Checkout or update SVN, with Subversion setup help." },
   { name: "status", description: "Read submission state from the developer dashboard." },
   { name: "pack", description: "Validate, run Plugin Check, and write an installable zip." },
   { name: "publish", description: "Route to submit or release based on current state." },
   { name: "submit", description: "Upload a zip to WordPress.org review or reupload." },
-  { name: "release", description: "Push an approved release through SVN." },
+  { name: "release", description: "Push an approved release through SVN trunk and tags." },
   { name: "demo", description: "Open the plugin in WordPress Playground." },
   { name: "version", description: "Bump plugin and readme version together." }
 ];
 
 const skillCommand = "npx skills add f/pressship --skill wordpress-plugin-publish -a codex";
+
+function commandDocPath(name: string): string {
+  if (name === "login" || name === "whoami") {
+    return "auth";
+  }
+  if (name === "ls") {
+    return "list";
+  }
+  return name;
+}
 
 export default function Home(): ReactNode {
   const logoUrl = useBaseUrl("/img/pressship-square.png");
@@ -210,7 +226,7 @@ export default function Home(): ReactNode {
 
               <p className={styles.heroSubtitle}>
                 Pressship validates, packages, submits, releases, inspects, and demos WordPress.org plugins —
-                with the review and SVN steps kept explicit, and everything else made quiet.
+                with review, SVN, and local setup steps kept explicit while the chores stay quiet.
               </p>
 
               <div className={styles.heroActions}>
@@ -263,7 +279,7 @@ export default function Home(): ReactNode {
                   />
                 </svg>
                 <span>
-                  Built on top of WordPress.org review, Plugin Check, SVN, and WordPress Playground.
+                  Built on WordPress.org review, Plugin Check, SVN, Subversion setup helpers, and WordPress Playground.
                 </span>
               </div>
             </div>
@@ -349,7 +365,7 @@ export default function Home(): ReactNode {
               {commands.map((command, index) => (
                 <Link
                   key={command.name}
-                  to={`/docs/commands/${command.name === "login" || command.name === "whoami" ? "auth" : command.name}`}
+                  to={`/docs/commands/${commandDocPath(command.name)}`}
                   className={styles.commandRow}>
                   <span className={styles.commandNum}>{String(index + 1).padStart(2, "0")}</span>
                   <code className={styles.commandName}>pressship {command.name}</code>

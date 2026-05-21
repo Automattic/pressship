@@ -31,6 +31,10 @@ export function getStorageStatePath(): string {
   return path.join(getConfigDir(), "wordpress-org-storage.json");
 }
 
+export function getSvnCredentialsPath(): string {
+  return path.join(getConfigDir(), "svn-credentials.json");
+}
+
 export function getDebugDir(): string {
   return path.join(getConfigDir(), "debug");
 }

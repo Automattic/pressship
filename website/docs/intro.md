@@ -23,6 +23,8 @@ npx pressship publish ./my-plugin
 - WordPress-installable zip generation.
 - Smart `publish` routing between review submission and SVN release.
 - Explicit `submit` and `release` commands for WordPress.org workflows.
+- `get` and `ls` commands for WordPress.org plugin SVN and account visibility.
+- Subversion detection with guided install paths when `svn` is missing.
 - `info`, `status`, and `demo` commands for inspection and local testing.
 
 Pressship does not replace WordPress.org review or SVN. It automates the steps around them.

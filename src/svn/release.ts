@@ -8,6 +8,8 @@ import { discoverPluginProject } from "../plugin/discover.js";
 import type { CommandPlan } from "../types.js";
 import { ui } from "../ui.js";
 import { pathExists } from "../utils/paths.js";
+import { resolveSvnCredentials, resolveSvnUsername, type SvnCredentials } from "./credentials.js";
+import { ensureSvnAvailable, isSvnAvailable } from "./subversion.js";
 
 const releaseOptionsSchema = z.object({
   slug: z.string().optional(),
@@ -17,7 +19,8 @@ const releaseOptionsSchema = z.object({
   message: z.string().optional(),
   dryRun: z.boolean().default(false),
   yes: z.boolean().default(false),
-  ignore: z.array(z.string()).default([])
+  ignore: z.array(z.string()).default([]),
+  installSvn: z.boolean().default(true)
 });
 
 export type ReleaseOptions = z.input<typeof releaseOptionsSchema>;
@@ -38,12 +41,16 @@ export async function release(pluginPath: string | undefined, rawOptions: Releas
 
   const svnDir = path.resolve(options.svnDir ?? path.join(process.cwd(), ".pressship-svn", slug));
   const message = options.message ?? `Release ${slug} ${version}`;
-  const plan = createReleaseCommandPlan(slug, svnDir, version, message, options.username);
+  const username = options.username ?? (options.dryRun ? undefined : await resolveSvnUsername());
+  const plan = createReleaseCommandPlan(slug, svnDir, version, message, username);
 
   ui.section("Release");
   ui.keyValue("SVN", ui.path(`https://plugins.svn.wordpress.org/${slug}`));
   ui.keyValue("Working copy", ui.path(svnDir));
   ui.keyValue("Version", ui.value(version));
+  if (username) {
+    ui.keyValue("SVN user", ui.value(username));
+  }
 
   if (options.dryRun) {
     ui.section("Dry-run command plan");
@@ -53,11 +60,15 @@ export async function release(pluginPath: string | undefined, rawOptions: Releas
     return;
   }
 
-  await ui.task("Preparing SVN working copy", () => ensureWorkingCopy(slug, svnDir, options.username));
+  await ensureSvnAvailable({ autoInstall: options.installSvn, interactive: process.stdin.isTTY });
+  await ui.task("Preparing SVN working copy", () => ensureWorkingCopy(slug, svnDir));
   await ui.task("Syncing plugin files to trunk", () => syncTrunk(rootDir, path.join(svnDir, "trunk"), options.ignore));
-  await ui.task("Adding changed files to SVN", () => runSvn(["add", "--force", "trunk"], svnDir));
+  await syncAssets(rootDir, path.join(svnDir, "assets"));
+  await ui.task("Adding changed files to SVN", () => runSvn(["add", "--force", "."], svnDir));
   await ui.task("Removing deleted files from SVN", () => deleteMissingFiles(svnDir));
   await ui.task(`Creating tag ${version}`, () => createTag(version, svnDir));
+  await setAssetMimeTypes(svnDir);
+  await ui.task("Updating SVN working copy", () => runSvn(["update"], svnDir));
 
   const status = await runSvn(["status"], svnDir, { capture: true });
   ui.section("SVN status");
@@ -73,7 +84,10 @@ export async function release(pluginPath: string | undefined, rawOptions: Releas
     }
   }
 
-  await ui.task("Committing SVN release", () => runSvn(["commit", "-m", message, ...usernameArgs(options.username)], svnDir));
+  const credentials = await resolveSvnCredentials(username);
+  await ui.task("Committing SVN release", () =>
+    runSvn(["commit", "-m", message, ...svnCredentialArgs(credentials)], svnDir)
+  );
 }
 
 export function createReleaseCommandPlan(
@@ -86,16 +100,21 @@ export function createReleaseCommandPlan(
   return [
     {
       command: "svn",
-      args: ["checkout", `https://plugins.svn.wordpress.org/${slug}`, svnDir, ...usernameArgs(username)]
+      args: ["checkout", `https://plugins.svn.wordpress.org/${slug}`, svnDir]
     },
-    { command: "svn", args: ["add", "--force", "trunk"], cwd: svnDir },
+    { command: "svn", args: ["add", "--force", "."], cwd: svnDir },
     { command: "svn", args: ["copy", "trunk", `tags/${version}`], cwd: svnDir },
+    { command: "svn", args: ["update"], cwd: svnDir },
     { command: "svn", args: ["status"], cwd: svnDir },
-    { command: "svn", args: ["commit", "-m", message, ...usernameArgs(username)], cwd: svnDir }
+    { command: "svn", args: ["commit", "-m", message, ...svnCredentialPreviewArgs(username)], cwd: svnDir }
   ];
 }
 
 export async function svnRepositoryExists(slug: string): Promise<boolean> {
+  if (!(await isSvnAvailable())) {
+    throw new Error("`svn` is not installed. Pressship can install it when you run a release or get command.");
+  }
+
   const result = await execa("svn", ["info", `https://plugins.svn.wordpress.org/${slug}`], {
     reject: false,
     stdout: "pipe",
@@ -105,17 +124,14 @@ export async function svnRepositoryExists(slug: string): Promise<boolean> {
   return result.exitCode === 0;
 }
 
-async function ensureWorkingCopy(slug: string, svnDir: string, username?: string): Promise<void> {
+async function ensureWorkingCopy(slug: string, svnDir: string): Promise<void> {
   await mkdir(path.dirname(svnDir), { recursive: true });
 
   try {
     await runSvn(["info"], svnDir, { capture: true });
     await runSvn(["update"], svnDir);
   } catch {
-    await runSvn(
-      ["checkout", `https://plugins.svn.wordpress.org/${slug}`, svnDir, ...usernameArgs(username)],
-      process.cwd()
-    );
+    await runSvn(["checkout", `https://plugins.svn.wordpress.org/${slug}`, svnDir], process.cwd());
   }
 }
 
@@ -130,6 +146,19 @@ async function syncTrunk(pluginRoot: string, trunkDir: string, ignore: string[])
     await mkdir(path.dirname(destination), { recursive: true });
     await cp(source, destination);
   }
+}
+
+async function syncAssets(pluginRoot: string, assetsDir: string): Promise<void> {
+  const sourceAssetsDir = path.join(pluginRoot, ".wordpress-org");
+  if (!pathExists(sourceAssetsDir)) {
+    return;
+  }
+
+  await ui.task("Syncing WordPress.org assets", async () => {
+    await mkdir(assetsDir, { recursive: true });
+    await emptyDirectory(assetsDir);
+    await cp(sourceAssetsDir, assetsDir, { recursive: true });
+  });
 }
 
 async function emptyDirectory(directory: string): Promise<void> {
@@ -164,6 +193,32 @@ async function createTag(version: string, svnDir: string): Promise<void> {
   await runSvn(["copy", "trunk", `tags/${version}`], svnDir);
 }
 
+async function setAssetMimeTypes(svnDir: string): Promise<void> {
+  const assetsDir = path.join(svnDir, "assets");
+  if (!pathExists(assetsDir)) {
+    return;
+  }
+
+  const mimeTypes = new Map([
+    [".gif", "image/gif"],
+    [".jpg", "image/jpeg"],
+    [".jpeg", "image/jpeg"],
+    [".png", "image/png"],
+    [".svg", "image/svg+xml"]
+  ]);
+  const entries = await readdir(assetsDir, { withFileTypes: true });
+
+  for (const entry of entries) {
+    if (!entry.isFile()) {
+      continue;
+    }
+    const mimeType = mimeTypes.get(path.extname(entry.name).toLowerCase());
+    if (mimeType) {
+      await runSvn(["propset", "svn:mime-type", mimeType, path.posix.join("assets", entry.name)], svnDir);
+    }
+  }
+}
+
 async function runSvn(
   args: string[],
   cwd: string,
@@ -174,17 +229,50 @@ async function runSvn(
     reject: false,
     stdout: options.capture ? "pipe" : "inherit",
     stderr: options.capture ? "pipe" : "inherit"
+  }).catch((error: unknown) => {
+    if (isMissingSvnError(error)) {
+      throw new Error("`svn` is required for WordPress.org SVN releases. Install Subversion and try again.");
+    }
+    throw error;
   });
 
+  if (result.failed && result.exitCode === undefined && !result.stderr && !result.stdout) {
+    throw new Error("`svn` is required for WordPress.org SVN releases. Install Subversion and try again.");
+  }
+
   if (result.exitCode !== 0) {
-    throw new Error(result.stderr || result.stdout || `svn ${args.join(" ")} failed.`);
+    throw new Error(result.stderr || result.stdout || `svn ${redactSvnArgs(args).join(" ")} failed.`);
   }
 
   return `${result.stdout ?? ""}\n${result.stderr ?? ""}`.trim();
 }
 
-function usernameArgs(username?: string): string[] {
-  return username ? ["--username", username] : [];
+function svnCredentialArgs(credentials: SvnCredentials): string[] {
+  return [
+    "--no-auth-cache",
+    "--non-interactive",
+    "--username",
+    credentials.username,
+    "--password",
+    credentials.password
+  ];
+}
+
+function svnCredentialPreviewArgs(username?: string): string[] {
+  return username
+    ? ["--no-auth-cache", "--non-interactive", "--username", username, "--password", "<saved-svn-password>"]
+    : [];
+}
+
+function redactSvnArgs(args: string[]): string[] {
+  return args.map((arg, index) => (args[index - 1] === "--password" ? "<redacted>" : arg));
+}
+
+function isMissingSvnError(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    ("code" in error ? (error as NodeJS.ErrnoException).code === "ENOENT" : /ENOENT|not found/i.test(error.message))
+  );
 }
 
 function formatCommand(command: CommandPlan): string {

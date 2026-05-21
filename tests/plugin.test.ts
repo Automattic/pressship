@@ -57,6 +57,8 @@ describe("packaging", () => {
     await writeFile(path.join(root, ".gitignore"), "node_modules\n");
     await mkdir(path.join(root, "node_modules", "ignored"), { recursive: true });
     await writeFile(path.join(root, "node_modules", "ignored", "file.js"), "");
+    await mkdir(path.join(root, ".wordpress-org"), { recursive: true });
+    await writeFile(path.join(root, ".wordpress-org", "banner-1544x500.png"), "");
 
     const project = await discoverPluginProject(root);
     const files = await listPackageFiles(root);

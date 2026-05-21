@@ -10,7 +10,7 @@ sidebar_position: 2
 - A WordPress.org account.
 - Internet access for browser login, Plugin Check setup, and WordPress Playground demos.
 - PHP when Pressship needs to prepare a managed Plugin Check environment.
-- `svn` for approved-plugin releases.
+- `svn` for approved-plugin releases and `get` checkouts. If it is missing, Pressship can detect your OS and offer to install Subversion.
 
 ## Authenticate
 

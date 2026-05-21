@@ -11,6 +11,8 @@ const sidebars: SidebarsConfig = {
       items: [
         "commands/auth",
         "commands/info",
+        "commands/list",
+        "commands/get",
         "commands/demo",
         "commands/status",
         "commands/version",

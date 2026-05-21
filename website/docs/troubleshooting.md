@@ -50,6 +50,19 @@ To use your own WordPress install:
 pressship submit ./my-plugin --wp-path /path/to/wordpress
 ```
 
+## Subversion Missing
+
+`pressship get`, `pressship release`, and `pressship publish --release` need `svn`. If it is missing, Pressship detects your operating system and package manager, then asks before installing Subversion.
+
+Supported installer paths include Homebrew, apt, dnf, yum, pacman, zypper, apk, winget, and Chocolatey.
+
+To skip automatic installation and print manual instructions instead:
+
+```bash
+pressship get list-all-urls --no-install-svn
+pressship release ./my-plugin --no-install-svn
+```
+
 ## Playground Demo Noise
 
 `demo` suppresses PHP deprecation notices so demo pages are readable. Real warnings, errors, and fatal errors are still shown.

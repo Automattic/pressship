@@ -22,7 +22,8 @@ const publishOptionsSchema = z.object({
   version: z.string().optional(),
   svnDir: z.string().optional(),
   username: z.string().optional(),
-  message: z.string().optional()
+  message: z.string().optional(),
+  installSvn: z.boolean().default(true)
 });
 
 export type PublishOptions = z.input<typeof publishOptionsSchema>;
@@ -191,6 +192,7 @@ function toReleaseOptions(options: z.infer<typeof publishOptionsSchema>): Releas
     message: options.message,
     dryRun: options.dryRun,
     yes: options.yes,
-    ignore: options.ignore
+    ignore: options.ignore,
+    installSvn: options.installSvn
   };
 }
