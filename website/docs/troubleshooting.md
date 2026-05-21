@@ -38,10 +38,17 @@ pressship login
 
 The managed Plugin Check environment is automatic, but it still needs PHP and internet access on first run.
 
-To bypass Plugin Check:
+To bypass only Plugin Check during submit-style uploads:
 
 ```bash
 pressship submit ./my-plugin --skip-plugin-check
+```
+
+To bypass both readme validation and Plugin Check before publishing or releasing through SVN:
+
+```bash
+pressship publish ./my-plugin --no-verify
+pressship release ./my-plugin --no-verify
 ```
 
 To use your own WordPress install:

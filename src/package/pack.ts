@@ -13,7 +13,7 @@ const packOptionsSchema = z.object({
   outputDir: z.string().optional(),
   ignore: z.array(z.string()).default([]),
   json: z.boolean().default(false),
-  validate: z.boolean().default(true),
+  verify: z.boolean().default(true),
   skipReadmeValidator: z.boolean().default(false),
   wpPath: z.string().optional()
 });
@@ -164,7 +164,7 @@ async function validateForPack(
   project: PluginProject,
   options: z.infer<typeof packOptionsSchema>
 ): Promise<PackValidationResult> {
-  if (!options.validate) {
+  if (!options.verify) {
     return skippedPackValidation();
   }
 
@@ -178,7 +178,7 @@ async function validateForPack(
   }
 
   if (hasBlockingFindings(validation.readmeFindings) || hasBlockingFindings(validation.pluginCheckFindings)) {
-    throw new Error("Package validation reported blocking findings. Re-run with `--no-validate` to create the zip anyway.");
+    throw new Error("Package validation reported blocking findings. Re-run with `--no-verify` to create the zip anyway.");
   }
 
   return validation;

@@ -4,10 +4,12 @@ import { cp, mkdir, readdir, rm } from "node:fs/promises";
 import path from "node:path";
 import { z } from "zod";
 import { listPackageFiles } from "../package/archive.js";
+import { validatePluginPack } from "../package/pack.js";
 import { discoverPluginProject, resolvePluginProjectPath } from "../plugin/discover.js";
 import type { CommandPlan } from "../types.js";
 import { ui } from "../ui.js";
 import { pathExists } from "../utils/paths.js";
+import { hasBlockingFindings, printFindings } from "../checks/summary.js";
 import { resolveSvnCredentials, resolveSvnUsername, type SvnCredentials } from "./credentials.js";
 import { ensureSvnAvailable, isSvnAvailable } from "./subversion.js";
 
@@ -18,6 +20,9 @@ const releaseOptionsSchema = z.object({
   username: z.string().optional(),
   message: z.string().optional(),
   dryRun: z.boolean().default(false),
+  verify: z.boolean().default(true),
+  skipReadmeValidator: z.boolean().default(false),
+  wpPath: z.string().optional(),
   yes: z.boolean().default(false),
   ignore: z.array(z.string()).default([]),
   installSvn: z.boolean().default(true)
@@ -62,6 +67,7 @@ export async function release(pluginPath: string | undefined, rawOptions: Releas
     return;
   }
 
+  await verifyRelease(project, options);
   await ensureSvnAvailable({ autoInstall: options.installSvn, interactive: process.stdin.isTTY });
   await ui.task("Preparing SVN working copy", () => ensureWorkingCopy(slug, svnDir));
   await assertReleaseVersionIsNew(version, svnDir);
@@ -140,6 +146,31 @@ export async function assertReleaseVersionIsNew(version: string, svnDir: string)
   throw new Error(
     `No version change detected. Version ${version} already exists in WordPress.org SVN, so it cannot be published again. Bump the plugin version with \`pressship version patch\` or pass --version before publishing.`
   );
+}
+
+async function verifyRelease(
+  project: Awaited<ReturnType<typeof discoverPluginProject>>,
+  options: z.infer<typeof releaseOptionsSchema>
+): Promise<void> {
+  if (!options.verify) {
+    ui.warn("Skipping readme validation and Plugin Check because --no-verify was passed.");
+    return;
+  }
+
+  const validation = await ui.task("Verifying plugin before SVN release", () =>
+    validatePluginPack(project, {
+      ignore: options.ignore,
+      skipReadmeValidator: options.skipReadmeValidator,
+      wpPath: options.wpPath
+    })
+  );
+
+  printFindings("Readme validation", validation.readmeFindings);
+  printFindings("Plugin Check", validation.pluginCheckFindings);
+
+  if (hasBlockingFindings(validation.readmeFindings) || hasBlockingFindings(validation.pluginCheckFindings)) {
+    throw new Error("Release verification reported blocking findings. Re-run with `--no-verify` to publish anyway.");
+  }
 }
 
 async function ensureWorkingCopy(slug: string, svnDir: string): Promise<void> {

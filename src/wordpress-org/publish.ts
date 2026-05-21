@@ -12,6 +12,7 @@ const publishOptionsSchema = z.object({
   submit: z.boolean().default(false),
   release: z.boolean().default(false),
   dryRun: z.boolean().default(false),
+  verify: z.boolean().default(true),
   skipPluginCheck: z.boolean().default(false),
   skipReadmeValidator: z.boolean().default(false),
   outputDir: z.string().optional(),
@@ -183,6 +184,7 @@ async function promptPublishAction(reason: string): Promise<Exclude<PublishActio
 function toSubmitOptions(options: z.infer<typeof publishOptionsSchema>): SubmitOptions {
   return {
     dryRun: options.dryRun,
+    verify: options.verify,
     skipPluginCheck: options.skipPluginCheck,
     skipReadmeValidator: options.skipReadmeValidator,
     outputDir: options.outputDir,
@@ -200,6 +202,9 @@ function toReleaseOptions(options: z.infer<typeof publishOptionsSchema>): Releas
     username: options.username,
     message: options.message,
     dryRun: options.dryRun,
+    verify: options.verify,
+    skipReadmeValidator: options.skipReadmeValidator,
+    wpPath: options.wpPath,
     yes: options.yes,
     ignore: options.ignore,
     installSvn: options.installSvn

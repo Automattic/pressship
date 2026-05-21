@@ -28,6 +28,7 @@ If WordPress.org already has a pending submission matching the plugin slug or na
 
 ```bash
 pressship submit ./my-plugin --dry-run
+pressship submit ./my-plugin --no-verify
 pressship submit ./my-plugin --skip-plugin-check
 pressship submit ./my-plugin --skip-readme-validator
 pressship submit ./my-plugin --wp-path /path/to/wordpress
@@ -35,3 +36,5 @@ pressship submit ./my-plugin --ignore "assets/**/*.mp4"
 pressship submit ./my-plugin --output-dir ./build
 pressship submit ./my-plugin --yes
 ```
+
+Use `--no-verify` only when you intentionally want to skip both readme validation and Plugin Check before uploading. Use `--skip-plugin-check` when you only want to bypass Plugin Check.

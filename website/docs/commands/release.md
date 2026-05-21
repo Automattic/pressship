@@ -14,14 +14,17 @@ If `svn` is missing, Pressship detects your operating system and package manager
 
 `release` will:
 
-1. checkout or update `https://plugins.svn.wordpress.org/<slug>`;
-2. confirm the local version has not already been released as `tags/<version>`;
-3. sync packaged plugin files into `trunk/`;
-4. sync `.wordpress-org/` into SVN `assets/` when the folder exists;
-5. create `tags/<version>` from trunk;
-6. show `svn status`;
-7. ask for confirmation;
-8. commit the release with a generated WordPress.org SVN password.
+1. verify the plugin with readme validation and Plugin Check;
+2. checkout or update `https://plugins.svn.wordpress.org/<slug>`;
+3. confirm the local version has not already been released as `tags/<version>`;
+4. sync packaged plugin files into `trunk/`;
+5. sync `.wordpress-org/` into SVN `assets/` when the folder exists;
+6. create `tags/<version>` from trunk;
+7. show `svn status`;
+8. ask for confirmation;
+9. commit the release with a generated WordPress.org SVN password.
+
+Use `--no-verify` only when you intentionally want to skip readme validation and Plugin Check before committing to SVN.
 
 If the SVN tag already exists, Pressship stops with a “No version change detected” message. Bump the plugin version before publishing again.
 
@@ -51,8 +54,10 @@ pressship release ./my-plugin --slug my-plugin
 pressship release ./my-plugin --version 1.2.3
 pressship release ./my-plugin --username WpOrgUser
 pressship release ./my-plugin --message "Release 1.2.3"
+pressship release ./my-plugin --wp-path /path/to/wordpress
 pressship release ./my-plugin --ignore "assets/**/*.mp4"
 pressship release ./my-plugin --dry-run
+pressship release ./my-plugin --no-verify
 pressship release ./my-plugin --yes
 pressship release ./my-plugin --no-install-svn
 ```

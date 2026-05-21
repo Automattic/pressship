@@ -21,6 +21,7 @@ pressship publish ./my-plugin
 pressship publish ./my-plugin --dry-run
 pressship publish ./my-plugin --submit
 pressship publish ./my-plugin --release --username WpOrgUser
+pressship publish ./my-plugin --no-verify
 pressship publish ./my-plugin --skip-plugin-check
 pressship publish ./my-plugin --skip-readme-validator
 pressship publish ./my-plugin --wp-path /path/to/wordpress
@@ -30,6 +31,8 @@ pressship publish ./my-plugin --release --no-install-svn
 ```
 
 Use `--submit` for review upload and `--release` for approved-plugin SVN release when you want to force the route.
+
+Before uploading or committing an SVN release, `publish` verifies the plugin with readme validation and Plugin Check. Use `--no-verify` only when you intentionally want to bypass both checks.
 
 From an SVN checkout root, Pressship treats `trunk/` as the plugin directory:
 

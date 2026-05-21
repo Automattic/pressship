@@ -138,9 +138,12 @@ pressship publish ./my-plugin              # Pick the right flow automatically
 pressship publish ./my-plugin --dry-run    # Validate + package, no upload
 pressship publish ./my-plugin --submit     # Force review submission
 pressship publish ./my-plugin --release    # Force SVN release
+pressship publish ./my-plugin --no-verify  # Skip readme validation + Plugin Check
 pressship publish ./my-plugin --yes        # Skip confirmation prompts
 pressship publish ./my-plugin --release --no-install-svn
 ```
+
+Before uploading or committing an SVN release, `publish` verifies the plugin with readme validation and Plugin Check. Use `--no-verify` only when you intentionally want to bypass those checks.
 
 Need fine-grained control? Use the explicit subcommands `submit` and `release`.
 
@@ -155,7 +158,7 @@ Validates the plugin, runs Plugin Check, and writes `{slug}.zip` — without upl
 ```bash
 pressship pack ./my-plugin --output-dir ./build
 pressship pack ./my-plugin --ignore "assets/**/*.mp4"
-pressship pack ./my-plugin --no-validate
+pressship pack ./my-plugin --no-verify
 pressship pack ./my-plugin --json
 ```
 
@@ -298,10 +301,16 @@ If you'd rather use your own install:
 pressship publish ./my-plugin --wp-path /path/to/wordpress
 ```
 
-Or skip Plugin Check entirely:
+For submit-style uploads, you can skip only Plugin Check while still running readme validation:
 
 ```bash
 pressship publish ./my-plugin --skip-plugin-check
+```
+
+To bypass both readme validation and Plugin Check before publishing or releasing through SVN:
+
+```bash
+pressship publish ./my-plugin --no-verify
 ```
 
 ## Releasing through SVN
@@ -314,13 +323,16 @@ pressship release ./my-plugin
 
 Pressship will:
 
-1. Checkout or update `https://plugins.svn.wordpress.org/<slug>`.
-2. Confirm the local version has not already been released as `tags/<version>`.
-3. Sync packaged plugin files into `trunk/`.
-4. Sync `.wordpress-org/` assets into the SVN `assets/` directory when that folder exists.
-5. Create `tags/<version>` from `trunk/`.
-6. Show `svn status` and ask before committing.
-7. Commit with `--no-auth-cache` and a generated WordPress.org SVN password.
+1. Verify the plugin with readme validation and Plugin Check.
+2. Checkout or update `https://plugins.svn.wordpress.org/<slug>`.
+3. Confirm the local version has not already been released as `tags/<version>`.
+4. Sync packaged plugin files into `trunk/`.
+5. Sync `.wordpress-org/` assets into the SVN `assets/` directory when that folder exists.
+6. Create `tags/<version>` from `trunk/`.
+7. Show `svn status` and ask before committing.
+8. Commit with `--no-auth-cache` and a generated WordPress.org SVN password.
+
+Use `--no-verify` to skip readme validation and Plugin Check before the SVN release.
 
 If the SVN tag already exists, Pressship stops with a “No version change detected” message instead of publishing the same version again.
 
@@ -337,7 +349,9 @@ pressship release ./my-plugin --slug my-plugin
 pressship release ./my-plugin --version 1.2.3
 pressship release ./my-plugin --username WpOrgUser
 pressship release ./my-plugin --message "Release 1.2.3"
+pressship release ./my-plugin --wp-path /path/to/wordpress
 pressship release ./my-plugin --dry-run
+pressship release ./my-plugin --no-verify
 pressship release ./my-plugin --yes
 pressship release ./my-plugin --no-install-svn
 ```

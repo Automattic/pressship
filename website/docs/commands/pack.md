@@ -23,8 +23,8 @@ pressship pack ./my-plugin --output-dir ./build
 pressship pack ./my-plugin --ignore "assets/**/*.mp4"
 pressship pack ./my-plugin --skip-readme-validator
 pressship pack ./my-plugin --wp-path /path/to/wordpress
-pressship pack ./my-plugin --no-validate
+pressship pack ./my-plugin --no-verify
 pressship pack ./my-plugin --json
 ```
 
-Use `--no-validate` only when you intentionally want the zip without readme validation or Plugin Check.
+Use `--no-verify` only when you intentionally want the zip without readme validation or Plugin Check.

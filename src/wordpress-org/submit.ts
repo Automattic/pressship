@@ -15,6 +15,7 @@ import { matchesPluginState, readPluginStatesFromPage } from "./state.js";
 
 const submitOptionsSchema = z.object({
   dryRun: z.boolean().default(false),
+  verify: z.boolean().default(true),
   skipPluginCheck: z.boolean().default(false),
   skipReadmeValidator: z.boolean().default(false),
   yes: z.boolean().default(false),
@@ -35,21 +36,27 @@ export async function submit(pluginPath: string | undefined, rawOptions: SubmitO
   );
   printProjectSummary(project);
 
-  const readmeFindings = await ui.task("Validating readme.txt", async () =>
-    project.readmePath
-      ? (await validateReadmeFile(project.readmePath, {
-          skipRemote: options.skipReadmeValidator,
-          headless: true
-        })).findings
-      : [
-          {
-            severity: "error" as const,
-            code: "readme.missing",
-            message: "WordPress.org submissions require a readme.txt file."
-          }
-        ]
-  );
-  printFindings("Readme validation", readmeFindings);
+  const readmeFindings = !options.verify
+    ? []
+    : await ui.task("Validating readme.txt", async () =>
+        project.readmePath
+          ? (await validateReadmeFile(project.readmePath, {
+              skipRemote: options.skipReadmeValidator,
+              headless: true
+            })).findings
+          : [
+              {
+                severity: "error" as const,
+                code: "readme.missing",
+                message: "WordPress.org submissions require a readme.txt file."
+              }
+            ]
+      );
+  if (!options.verify) {
+    ui.warn("Skipping readme validation and Plugin Check because --no-verify was passed.");
+  } else {
+    printFindings("Readme validation", readmeFindings);
+  }
 
   const packageResult = await ui.task(
     "Creating submission zip",
@@ -70,12 +77,14 @@ export async function submit(pluginPath: string | undefined, rawOptions: SubmitO
   );
   const pluginCheck = await ui.task("Running WordPress.org Plugin Check", () =>
     runPluginCheck(checkTarget.path, {
-      skip: options.skipPluginCheck,
+      skip: !options.verify || options.skipPluginCheck,
       mode: "new",
       wpPath: options.wpPath
     })
   );
-  printFindings("Plugin Check", pluginCheck.findings);
+  if (options.verify) {
+    printFindings("Plugin Check", pluginCheck.findings);
+  }
 
   const blockingFindings = hasBlockingFindings(readmeFindings) || hasBlockingFindings(pluginCheck.findings);
   if (blockingFindings && !options.yes) {
