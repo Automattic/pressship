@@ -10,6 +10,7 @@ pressship publish ./my-plugin
 
 `publish` is the modernized happy path for WordPress.org plugins. It discovers the plugin and chooses the best publishing flow:
 
+- use `release` when running inside a WordPress.org SVN checkout from `pressship get`;
 - use `submit` when a matching WordPress.org review submission is pending or reuploadable;
 - use `release` when the plugin has an approved WordPress.org SVN repository and no pending review submission is found;
 - ask whether to submit or release when Pressship cannot confidently choose.
@@ -29,6 +30,15 @@ pressship publish ./my-plugin --release --no-install-svn
 ```
 
 Use `--submit` for review upload and `--release` for approved-plugin SVN release when you want to force the route.
+
+From an SVN checkout root, Pressship treats `trunk/` as the plugin directory:
+
+```bash
+pressship get my-plugin ./my-plugin
+cd ./my-plugin
+pressship version patch
+pressship publish
+```
 
 For SVN releases, Pressship can infer the username from the saved WordPress.org login. On the first real release commit, it will ask for a generated WordPress.org SVN password and save it locally for later releases.
 

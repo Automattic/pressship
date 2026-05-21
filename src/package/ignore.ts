@@ -12,6 +12,8 @@ export const defaultIgnorePatterns = [
   ".github/**",
   ".wordpress-org",
   ".wordpress-org/**",
+  ".pressship-svn",
+  ".pressship-svn/**",
   ".idea",
   ".idea/**",
   ".vscode",

@@ -161,7 +161,7 @@ pressship pack ./my-plugin --json
 
 ### Ignore rules
 
-Default exclusions: `.git`, `.gitignore`, `.github`, `.DS_Store`, `.idea`, `.vscode`, `.env*`, `node_modules`, `dist`, `build`, `coverage`, `tests`, `*.log`, `*.zip`.
+Default exclusions: `.git`, `.gitignore`, `.github`, `.DS_Store`, `.idea`, `.vscode`, `.env*`, `.pressship-svn`, `node_modules`, `dist`, `build`, `coverage`, `tests`, `*.log`, `*.zip`.
 
 Add per-project exclusions in a `.pressshipignore` file (same syntax as `.gitignore`):
 
@@ -201,6 +201,20 @@ pressship get list-all-urls --no-install-svn
 `get` checks out `https://plugins.svn.wordpress.org/<slug>` into the destination directory. If the destination already contains an SVN working copy, Pressship runs `svn update` instead. After checkout or update, it prints repository details such as revision, last changed revision, trunk/assets availability, and tag count.
 
 If `svn` is not available, Pressship detects your operating system and package manager, then asks before installing Subversion. Use `--no-install-svn` to skip the installer helper and fail with manual instructions.
+
+### Editing an approved plugin from SVN
+
+WordPress.org SVN working copies keep editable plugin code in `trunk/`, and published versions in `tags/<version>/`. A typical release flow is:
+
+```bash
+pressship get my-plugin ./my-plugin
+cd ./my-plugin
+# edit files in trunk/
+pressship version patch
+pressship publish
+```
+
+When Pressship runs from the SVN checkout root, it treats `trunk/` as the plugin directory, bumps the version there, and routes `publish` to the SVN release flow.
 
 ## Inspecting submission state
 

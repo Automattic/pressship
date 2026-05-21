@@ -4,7 +4,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { createPluginZip, listPackageFiles, stagePluginDirectory } from "../src/package/archive.js";
 import { createPluginPack, skippedPackValidation, summarizePackResult, validatePluginPack } from "../src/package/pack.js";
-import { discoverPluginProject } from "../src/plugin/discover.js";
+import { discoverPluginProject, resolvePluginProjectPath } from "../src/plugin/discover.js";
 import { parsePluginHeaders } from "../src/plugin/headers.js";
 import { parseReadme, validateReadmeLocally } from "../src/plugin/readme.js";
 import { bumpVersion, updatePluginHeaderVersion, updateReadmeStableTag } from "../src/plugin/version.js";
@@ -37,6 +37,21 @@ describe("plugin parsing", () => {
     expect(path.basename(project.mainFile)).toBe("example-plugin.php");
     expect(project.readme?.stableTag).toBe("1.2.3");
   });
+
+  it("treats a WordPress.org SVN checkout root as the trunk plugin directory", async () => {
+    const svnRoot = await sampleSvnCheckout();
+    const project = await discoverPluginProject(svnRoot);
+
+    expect(resolvePluginProjectPath(svnRoot)).toEqual({
+      inputDir: svnRoot,
+      rootDir: path.join(svnRoot, "trunk"),
+      svnRootDir: svnRoot
+    });
+    expect(project.rootDir).toBe(path.join(svnRoot, "trunk"));
+    expect(project.mainFile).toBe(path.join(svnRoot, "trunk", "example-plugin.php"));
+    expect(project.readmePath).toBe(path.join(svnRoot, "trunk", "readme.txt"));
+    expect(project.version).toBe("1.2.3");
+  });
 });
 
 describe("readme parsing", () => {
@@ -59,6 +74,8 @@ describe("packaging", () => {
     await writeFile(path.join(root, "node_modules", "ignored", "file.js"), "");
     await mkdir(path.join(root, ".wordpress-org"), { recursive: true });
     await writeFile(path.join(root, ".wordpress-org", "banner-1544x500.png"), "");
+    await mkdir(path.join(root, ".pressship-svn", "example-plugin", "trunk"), { recursive: true });
+    await writeFile(path.join(root, ".pressship-svn", "example-plugin", "trunk", "leaked.php"), "");
 
     const project = await discoverPluginProject(root);
     const files = await listPackageFiles(root);
@@ -221,6 +238,21 @@ describe("version bumps", () => {
 
 async function samplePlugin(options: { readme?: boolean } = {}): Promise<string> {
   const root = await mkdtemp(path.join(tmpdir(), "pressship-plugin-"));
+  await writeSamplePluginFiles(root, options);
+  return root;
+}
+
+async function sampleSvnCheckout(): Promise<string> {
+  const root = await mkdtemp(path.join(tmpdir(), "pressship-svn-checkout-"));
+  await mkdir(path.join(root, ".svn"), { recursive: true });
+  await mkdir(path.join(root, "branches"), { recursive: true });
+  await mkdir(path.join(root, "tags"), { recursive: true });
+  await mkdir(path.join(root, "trunk"), { recursive: true });
+  await writeSamplePluginFiles(path.join(root, "trunk"));
+  return root;
+}
+
+async function writeSamplePluginFiles(root: string, options: { readme?: boolean } = {}): Promise<void> {
   await writeFile(
     path.join(root, "example-plugin.php"),
     `<?php
@@ -249,6 +281,4 @@ Does example things.
 `
     );
   }
-
-  return root;
 }

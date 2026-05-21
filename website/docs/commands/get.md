@@ -27,6 +27,20 @@ If the destination already contains an SVN working copy, Pressship runs `svn upd
 
 If `svn` is missing, Pressship detects your operating system and package manager, then asks before installing Subversion. It can use Homebrew on macOS, common Linux package managers, winget, or Chocolatey.
 
+## Editing From SVN
+
+WordPress.org SVN working copies keep the editable plugin code in `trunk/`, with published versions stored under `tags/<version>/`.
+
+```bash
+pressship get my-plugin ./my-plugin
+cd ./my-plugin
+# edit files in trunk/
+pressship version patch
+pressship publish
+```
+
+When Pressship runs from the SVN checkout root, it treats `trunk/` as the plugin directory. `version` updates the plugin header and readme in `trunk/`, and `publish` routes to the SVN release flow.
+
 After checkout or update, Pressship prints repository details:
 
 - SVN URL

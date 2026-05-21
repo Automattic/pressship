@@ -16,6 +16,7 @@ It excludes common development artifacts by default:
 - `.vscode`
 - `.env`
 - `.env.*`
+- `.pressship-svn`
 - `node_modules`
 - `dist`
 - `build`

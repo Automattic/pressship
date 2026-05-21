@@ -2,7 +2,7 @@ import { select } from "@inquirer/prompts";
 import path from "node:path";
 import { z } from "zod";
 import { hasSavedSession } from "../auth/session.js";
-import { discoverPluginProject } from "../plugin/discover.js";
+import { discoverPluginProject, resolvePluginProjectPath } from "../plugin/discover.js";
 import { release, svnRepositoryExists, type ReleaseOptions } from "../svn/release.js";
 import { ui } from "../ui.js";
 import { submit, type SubmitOptions } from "./submit.js";
@@ -34,6 +34,7 @@ export type PublishRouteInput = {
   forceRelease?: boolean;
   hasPendingSubmission?: boolean;
   svnRepositoryExists?: boolean;
+  isLocalSvnWorkingCopy?: boolean;
   canPrompt?: boolean;
 };
 
@@ -44,7 +45,9 @@ export type PublishRoute = {
 
 export async function publish(pluginPath: string | undefined, rawOptions: PublishOptions): Promise<void> {
   const options = publishOptionsSchema.parse(rawOptions);
-  const rootDir = path.resolve(pluginPath ?? process.cwd());
+  const inputDir = path.resolve(pluginPath ?? process.cwd());
+  const source = resolvePluginProjectPath(inputDir);
+  const rootDir = source.rootDir;
 
   ui.intro(options.dryRun ? "Dry-run plugin publish" : "Publish plugin");
 
@@ -57,7 +60,7 @@ export async function publish(pluginPath: string | undefined, rawOptions: Publis
       throw new Error("Forced publish routes cannot require a prompt.");
     }
     ui.info(`Publish target: ${route.action} (${route.reason})`);
-    await runPublishAction(route.action, rootDir, options);
+    await runPublishAction(route.action, inputDir, rootDir, options);
     return;
   }
 
@@ -74,16 +77,18 @@ export async function publish(pluginPath: string | undefined, rawOptions: Publis
     forceRelease: options.release,
     hasPendingSubmission,
     svnRepositoryExists: hasSvnRepository,
+    isLocalSvnWorkingCopy: Boolean(source.svnRootDir),
     canPrompt: !options.yes && process.stdin.isTTY
   });
   const action = route.action === "prompt" ? await promptPublishAction(route.reason) : route.action;
 
   ui.info(`Publish target: ${action} (${route.reason})`);
-  await runPublishAction(action, rootDir, options);
+  await runPublishAction(action, inputDir, rootDir, options);
 }
 
 async function runPublishAction(
   action: Exclude<PublishAction, "prompt">,
+  inputDir: string,
   rootDir: string,
   options: z.infer<typeof publishOptionsSchema>
 ): Promise<void> {
@@ -92,7 +97,7 @@ async function runPublishAction(
     return;
   }
 
-  await release(rootDir, toReleaseOptions(options));
+  await release(inputDir, toReleaseOptions(options));
 }
 
 export function resolvePublishRoute(input: PublishRouteInput): PublishRoute {
@@ -106,6 +111,10 @@ export function resolvePublishRoute(input: PublishRouteInput): PublishRoute {
 
   if (input.forceRelease) {
     return { action: "release", reason: "`--release` was passed" };
+  }
+
+  if (input.isLocalSvnWorkingCopy) {
+    return { action: "release", reason: "local WordPress.org SVN working copy" };
   }
 
   if (input.hasPendingSubmission) {

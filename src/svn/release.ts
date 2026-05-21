@@ -4,7 +4,7 @@ import { cp, mkdir, readdir, rm } from "node:fs/promises";
 import path from "node:path";
 import { z } from "zod";
 import { listPackageFiles } from "../package/archive.js";
-import { discoverPluginProject } from "../plugin/discover.js";
+import { discoverPluginProject, resolvePluginProjectPath } from "../plugin/discover.js";
 import type { CommandPlan } from "../types.js";
 import { ui } from "../ui.js";
 import { pathExists } from "../utils/paths.js";
@@ -28,7 +28,9 @@ export type ReleaseOptions = z.input<typeof releaseOptionsSchema>;
 export async function release(pluginPath: string | undefined, rawOptions: ReleaseOptions): Promise<void> {
   const options = releaseOptionsSchema.parse(rawOptions);
   ui.intro(options.dryRun ? "Dry-run SVN release" : "Release plugin to WordPress.org SVN");
-  const rootDir = path.resolve(pluginPath ?? (await input({ message: "Plugin directory", default: process.cwd() })));
+  const inputDir = path.resolve(pluginPath ?? (await input({ message: "Plugin directory", default: process.cwd() })));
+  const source = resolvePluginProjectPath(inputDir);
+  const rootDir = source.rootDir;
   const project = await ui.task("Discovering WordPress plugin", () => discoverPluginProject(rootDir), (value) =>
     `Discovered ${value.headers.pluginName}`
   );
@@ -39,7 +41,7 @@ export async function release(pluginPath: string | undefined, rawOptions: Releas
     throw new Error("Could not infer a plugin version. Pass --version or add Version to the plugin header.");
   }
 
-  const svnDir = path.resolve(options.svnDir ?? path.join(process.cwd(), ".pressship-svn", slug));
+  const svnDir = path.resolve(options.svnDir ?? source.svnRootDir ?? path.join(process.cwd(), ".pressship-svn", slug));
   const message = options.message ?? `Release ${slug} ${version}`;
   const username = options.username ?? (options.dryRun ? undefined : await resolveSvnUsername());
   const plan = createReleaseCommandPlan(slug, svnDir, version, message, username);
@@ -63,7 +65,12 @@ export async function release(pluginPath: string | undefined, rawOptions: Releas
   await ensureSvnAvailable({ autoInstall: options.installSvn, interactive: process.stdin.isTTY });
   await ui.task("Preparing SVN working copy", () => ensureWorkingCopy(slug, svnDir));
   await assertReleaseVersionIsNew(version, svnDir);
-  await ui.task("Syncing plugin files to trunk", () => syncTrunk(rootDir, path.join(svnDir, "trunk"), options.ignore));
+  const trunkDir = path.join(svnDir, "trunk");
+  if (samePath(rootDir, trunkDir)) {
+    ui.info("Using the current SVN trunk working copy.");
+  } else {
+    await ui.task("Syncing plugin files to trunk", () => syncTrunk(rootDir, trunkDir, options.ignore));
+  }
   await syncAssets(rootDir, path.join(svnDir, "assets"));
   await ui.task("Adding changed files to SVN", () => runSvn(["add", "--force", "."], svnDir));
   await ui.task("Removing deleted files from SVN", () => deleteMissingFiles(svnDir));
@@ -296,4 +303,8 @@ function formatCommand(command: CommandPlan): string {
 
 function quoteArg(value: string): string {
   return /\s/.test(value) ? JSON.stringify(value) : value;
+}
+
+function samePath(left: string, right: string): boolean {
+  return path.resolve(left) === path.resolve(right);
 }

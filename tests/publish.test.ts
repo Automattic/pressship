@@ -36,6 +36,13 @@ describe("npm-style publish routing", () => {
     });
   });
 
+  it("routes local SVN working copies to release", () => {
+    expect(resolvePublishRoute({ isLocalSvnWorkingCopy: true, hasPendingSubmission: true })).toEqual({
+      action: "release",
+      reason: "local WordPress.org SVN working copy"
+    });
+  });
+
   it("routes missing SVN repositories to submit", () => {
     expect(resolvePublishRoute({ svnRepositoryExists: false })).toEqual({
       action: "submit",

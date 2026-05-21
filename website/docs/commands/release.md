@@ -25,6 +25,15 @@ If `svn` is missing, Pressship detects your operating system and package manager
 
 If the SVN tag already exists, Pressship stops with a “No version change detected” message. Bump the plugin version before publishing again.
 
+When running from a working copy created by `pressship get`, Pressship uses `trunk/` as the plugin directory and the checkout root as the SVN working copy:
+
+```bash
+pressship get my-plugin ./my-plugin
+cd ./my-plugin
+pressship version patch
+pressship publish
+```
+
 ## SVN Password
 
 Pressship infers the SVN username from the saved WordPress.org login when possible. If no SVN password has been saved yet, it will direct you to:
