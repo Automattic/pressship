@@ -52,6 +52,7 @@ program
   .command("info")
   .description("Show detailed info for a local plugin path or WordPress.org plugin slug.")
   .argument("[slug-or-path]", "Local plugin path, WordPress.org plugin slug, or plugin URL")
+  .option("--remote", "Fetch hosted WordPress.org plugin info even when the target is local")
   .option("--json", "Print plugin info as JSON")
   .action((target: string | undefined, options: InfoOptions) => run(() => info(target, options))());
 

@@ -2,7 +2,7 @@ import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { hostedPluginInfoFromApi, localPluginInfo, slugFromHostedTarget } from "../src/plugin/info.js";
+import { hostedPluginInfoFromApi, localPluginInfo, resolveHostedInfoSlug, slugFromHostedTarget } from "../src/plugin/info.js";
 import { discoverPluginProject } from "../src/plugin/discover.js";
 
 describe("plugin info target parsing", () => {
@@ -18,6 +18,17 @@ describe("plugin info target parsing", () => {
 });
 
 describe("hosted plugin info", () => {
+  it("resolves remote info slugs from local plugin paths", async () => {
+    const root = await samplePlugin();
+
+    await expect(resolveHostedInfoSlug(root)).resolves.toBe("example-plugin");
+  });
+
+  it("resolves remote info slugs from hosted targets", async () => {
+    await expect(resolveHostedInfoSlug("https://wordpress.org/plugins/list-all-urls/")).resolves.toBe("list-all-urls");
+    await expect(resolveHostedInfoSlug("list-all-urls")).resolves.toBe("list-all-urls");
+  });
+
   it("normalizes WordPress.org plugin API responses", () => {
     const info = hostedPluginInfoFromApi(
       {

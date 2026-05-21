@@ -6,7 +6,8 @@ import { ui } from "../ui.js";
 import { pathExists } from "../utils/paths.js";
 
 const infoOptionsSchema = z.object({
-  json: z.boolean().default(false)
+  json: z.boolean().default(false),
+  remote: z.boolean().default(false)
 });
 
 export type InfoOptions = z.input<typeof infoOptionsSchema>;
@@ -89,8 +90,8 @@ type PluginInfoApiResponse = {
 export async function info(target: string | undefined, rawOptions: InfoOptions = {}): Promise<void> {
   const options = infoOptionsSchema.parse(rawOptions);
   const result = options.json
-    ? await getPluginInfo(target)
-    : await ui.task("Reading plugin info", () => getPluginInfo(target), (value) =>
+    ? await getPluginInfo(target, { remote: options.remote })
+    : await ui.task("Reading plugin info", () => getPluginInfo(target, { remote: options.remote }), (value) =>
         `Found ${value.name}`
       );
 
@@ -102,14 +103,29 @@ export async function info(target: string | undefined, rawOptions: InfoOptions =
   printPluginInfo(result);
 }
 
-export async function getPluginInfo(target: string | undefined): Promise<PluginInfo> {
+export async function getPluginInfo(target: string | undefined, options: Pick<z.infer<typeof infoOptionsSchema>, "remote"> = { remote: false }): Promise<PluginInfo> {
   const resolvedTarget = target ?? process.cwd();
+
+  if (options.remote) {
+    return fetchHostedPluginInfo(await resolveHostedInfoSlug(target));
+  }
 
   if (isLocalPluginTarget(resolvedTarget)) {
     return localPluginInfo(await discoverPluginProject(resolvedTarget));
   }
 
   return fetchHostedPluginInfo(slugFromHostedTarget(resolvedTarget));
+}
+
+export async function resolveHostedInfoSlug(target: string | undefined): Promise<string> {
+  const resolvedTarget = target ?? process.cwd();
+
+  if (isLocalPluginTarget(resolvedTarget)) {
+    const project = await discoverPluginProject(resolvedTarget);
+    return project.slug;
+  }
+
+  return slugFromHostedTarget(resolvedTarget);
 }
 
 export function localPluginInfo(project: PluginProject): LocalPluginInfo {

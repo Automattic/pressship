@@ -245,10 +245,11 @@ Pressmind
 pressship info                                 # Current directory
 pressship info ./my-plugin                     # Local path
 pressship info 16deza-table-cell-extras        # Hosted slug
+pressship info --remote                        # Hosted info for the current plugin slug
 pressship info ./my-plugin --json
 ```
 
-For local plugins, Pressship parses headers and readme metadata. For hosted plugins it queries the official WordPress.org plugin info API.
+For local plugins, Pressship parses headers and readme metadata. For hosted plugins it queries the official WordPress.org plugin info API. Use `--remote` to force the hosted plugin-store lookup from a local path or the current directory.
 
 ## Version bumping
 
