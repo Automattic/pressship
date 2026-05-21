@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import Link from "@docusaurus/Link";
 import useBaseUrl from "@docusaurus/useBaseUrl";
 import Layout from "@theme/Layout";
@@ -152,6 +152,68 @@ const commands = [
 
 const skillCommand = "npx skills add f/pressship --skill wordpress-plugin-publish -a codex";
 
+const heroPhrases = [
+  "from the terminal.",
+  "using agents.",
+  "modernized.",
+  "seamlessly.",
+  "like npm publish.",
+  "in one command.",
+  "without the friction.",
+  "for plugin authors.",
+  "automated end to end.",
+  "the right way."
+];
+
+type TypewriterPhase = "typing" | "hold" | "deleting" | "between";
+
+function TypewriterAccent({ phrases }: { phrases: string[] }): ReactNode {
+  const [phraseIndex, setPhraseIndex] = useState(0);
+  const [text, setText] = useState(phrases[0] ?? "");
+  const [phase, setPhase] = useState<TypewriterPhase>("hold");
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return;
+
+    let timer: ReturnType<typeof setTimeout> | undefined;
+
+    if (phase === "hold") {
+      timer = setTimeout(() => setPhase("deleting"), 1800);
+    } else if (phase === "deleting") {
+      if (text.length === 0) {
+        setPhase("between");
+      } else {
+        timer = setTimeout(() => setText((current) => current.slice(0, -1)), 28);
+      }
+    } else if (phase === "between") {
+      timer = setTimeout(() => {
+        setPhraseIndex((index) => (index + 1) % phrases.length);
+        setPhase("typing");
+      }, 220);
+    } else {
+      const target = phrases[phraseIndex] ?? "";
+      if (text === target) {
+        setPhase("hold");
+      } else {
+        timer = setTimeout(() => {
+          setText(target.slice(0, text.length + 1));
+        }, 55);
+      }
+    }
+
+    return () => {
+      if (timer) clearTimeout(timer);
+    };
+  }, [phase, text, phraseIndex, phrases]);
+
+  return (
+    <span className={styles.heroTitleAccent} aria-live="polite" aria-atomic="true">
+      {text}
+    </span>
+  );
+}
+
 function commandDocPath(name: string): string {
   if (name === "login" || name === "whoami") {
     return "auth";
@@ -221,7 +283,7 @@ export default function Home(): ReactNode {
               <Heading as="h1" className={styles.heroTitle}>
                 WordPress.org plugin publishing,
                 <br />
-                <span className={styles.heroTitleAccent}>from the terminal.</span>
+                <TypewriterAccent phrases={heroPhrases} />
               </Heading>
 
               <p className={styles.heroSubtitle}>
