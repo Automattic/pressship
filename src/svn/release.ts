@@ -62,6 +62,7 @@ export async function release(pluginPath: string | undefined, rawOptions: Releas
 
   await ensureSvnAvailable({ autoInstall: options.installSvn, interactive: process.stdin.isTTY });
   await ui.task("Preparing SVN working copy", () => ensureWorkingCopy(slug, svnDir));
+  await assertReleaseVersionIsNew(version, svnDir);
   await ui.task("Syncing plugin files to trunk", () => syncTrunk(rootDir, path.join(svnDir, "trunk"), options.ignore));
   await syncAssets(rootDir, path.join(svnDir, "assets"));
   await ui.task("Adding changed files to SVN", () => runSvn(["add", "--force", "."], svnDir));
@@ -122,6 +123,16 @@ export async function svnRepositoryExists(slug: string): Promise<boolean> {
   });
 
   return result.exitCode === 0;
+}
+
+export async function assertReleaseVersionIsNew(version: string, svnDir: string): Promise<void> {
+  if (!pathExists(path.join(svnDir, "tags", version))) {
+    return;
+  }
+
+  throw new Error(
+    `No version change detected. Version ${version} already exists in WordPress.org SVN, so it cannot be published again. Bump the plugin version with \`pressship version patch\` or pass --version before publishing.`
+  );
 }
 
 async function ensureWorkingCopy(slug: string, svnDir: string): Promise<void> {
@@ -187,7 +198,9 @@ async function deleteMissingFiles(svnDir: string): Promise<void> {
 async function createTag(version: string, svnDir: string): Promise<void> {
   const tagPath = path.join(svnDir, "tags", version);
   if (pathExists(tagPath)) {
-    throw new Error(`SVN tag tags/${version} already exists. Choose a new version; tags should not be overwritten.`);
+    throw new Error(
+      `No version change detected. Version ${version} already exists in WordPress.org SVN, so it cannot be published again. Bump the plugin version with \`pressship version patch\` or pass --version before publishing.`
+    );
   }
   await mkdir(path.dirname(tagPath), { recursive: true });
   await runSvn(["copy", "trunk", `tags/${version}`], svnDir);

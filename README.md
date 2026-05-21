@@ -300,11 +300,14 @@ pressship release ./my-plugin
 Pressship will:
 
 1. Checkout or update `https://plugins.svn.wordpress.org/<slug>`.
-2. Sync packaged plugin files into `trunk/`.
-3. Sync `.wordpress-org/` assets into the SVN `assets/` directory when that folder exists.
-4. Create `tags/<version>` from `trunk/`.
-5. Show `svn status` and ask before committing.
-6. Commit with `--no-auth-cache` and a generated WordPress.org SVN password.
+2. Confirm the local version has not already been released as `tags/<version>`.
+3. Sync packaged plugin files into `trunk/`.
+4. Sync `.wordpress-org/` assets into the SVN `assets/` directory when that folder exists.
+5. Create `tags/<version>` from `trunk/`.
+6. Show `svn status` and ask before committing.
+7. Commit with `--no-auth-cache` and a generated WordPress.org SVN password.
+
+If the SVN tag already exists, Pressship stops with a “No version change detected” message instead of publishing the same version again.
 
 For commits, Pressship uses the saved WordPress.org login to infer your SVN username. If no SVN password is saved yet, it points you to your WordPress.org SVN password page:
 

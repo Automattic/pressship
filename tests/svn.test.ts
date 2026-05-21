@@ -4,7 +4,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { getSavedSvnPassword, getSvnPasswordUrl, saveSvnPassword } from "../src/svn/credentials.js";
 import { getPluginSvnUrl, parseSvnInfo, resolveCheckoutPath, resolveSvnGetAction } from "../src/svn/get.js";
-import { createReleaseCommandPlan } from "../src/svn/release.js";
+import { assertReleaseVersionIsNew, createReleaseCommandPlan } from "../src/svn/release.js";
 import { formatSubversionInstallInstructions, getSubversionInstallPlan } from "../src/svn/subversion.js";
 import { getSvnCredentialsPath } from "../src/utils/paths.js";
 
@@ -72,6 +72,22 @@ describe("SVN release planning", () => {
 
     expect(await getSavedSvnPassword("WpUser")).toBe("generated-password");
     await expect(readFile(getSvnCredentialsPath(), "utf8")).resolves.toContain("generated-password");
+  });
+
+  it("rejects releases when the SVN tag already exists", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "pressship-svn-release-"));
+    const svnDir = path.join(root, "example-plugin");
+    await mkdir(path.join(svnDir, "tags", "1.2.3"), { recursive: true });
+
+    await expect(assertReleaseVersionIsNew("1.2.3", svnDir)).rejects.toThrow("No version change detected");
+  });
+
+  it("allows releases when the SVN tag does not exist yet", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "pressship-svn-release-"));
+    const svnDir = path.join(root, "example-plugin");
+    await mkdir(path.join(svnDir, "tags", "1.2.2"), { recursive: true });
+
+    await expect(assertReleaseVersionIsNew("1.2.3", svnDir)).resolves.toBeUndefined();
   });
 });
 

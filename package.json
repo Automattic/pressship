@@ -1,6 +1,6 @@
 {
   "name": "pressship",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "Submit and release WordPress.org plugins from the command line.",
   "homepage": "https://pressship.org",
   "bin": {

@@ -32,4 +32,6 @@ Use `--submit` for review upload and `--release` for approved-plugin SVN release
 
 For SVN releases, Pressship can infer the username from the saved WordPress.org login. On the first real release commit, it will ask for a generated WordPress.org SVN password and save it locally for later releases.
 
+When the selected release version already exists in SVN as `tags/<version>`, Pressship stops with a “No version change detected” message. Bump the plugin version before publishing again.
+
 If `svn` is missing during a release, Pressship can detect your operating system and ask before installing Subversion. Use `--no-install-svn` to skip that helper.

@@ -15,12 +15,15 @@ If `svn` is missing, Pressship detects your operating system and package manager
 `release` will:
 
 1. checkout or update `https://plugins.svn.wordpress.org/<slug>`;
-2. sync packaged plugin files into `trunk/`;
-3. sync `.wordpress-org/` into SVN `assets/` when the folder exists;
-4. create `tags/<version>` from trunk;
-5. show `svn status`;
-6. ask for confirmation;
-7. commit the release with a generated WordPress.org SVN password.
+2. confirm the local version has not already been released as `tags/<version>`;
+3. sync packaged plugin files into `trunk/`;
+4. sync `.wordpress-org/` into SVN `assets/` when the folder exists;
+5. create `tags/<version>` from trunk;
+6. show `svn status`;
+7. ask for confirmation;
+8. commit the release with a generated WordPress.org SVN password.
+
+If the SVN tag already exists, Pressship stops with a “No version change detected” message. Bump the plugin version before publishing again.
 
 ## SVN Password
 
