@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback, type ReactNode } from "react";
 import Link from "@docusaurus/Link";
+import { useInstallMethod, type InstallMethod } from "@site/src/theme/Root";
 import useBaseUrl from "@docusaurus/useBaseUrl";
 import Layout from "@theme/Layout";
 import Heading from "@theme/Heading";
@@ -27,9 +28,9 @@ type Block = {
   output: ReactNode;
 };
 
-const session: Block[] = [
+const getSession = (prefix: string): Block[] => [
   {
-    command: "npx pressship status ./my-plugin",
+    command: `${prefix} status ./my-plugin`,
     output: (
       <>
         <span className={styles.muted}>slug</span>
@@ -44,7 +45,7 @@ const session: Block[] = [
     )
   },
   {
-    command: "npx pressship pack ./my-plugin",
+    command: `${prefix} pack ./my-plugin`,
     output: (
       <>
         <span className={styles.muted}>readme.txt</span>
@@ -59,7 +60,7 @@ const session: Block[] = [
     )
   },
   {
-    command: "npx pressship publish ./my-plugin",
+    command: `${prefix} publish ./my-plugin`,
     output: (
       <>
         <span className={styles.muted}>Detected</span>
@@ -75,30 +76,30 @@ const session: Block[] = [
   }
 ];
 
-const workflow = [
+const getWorkflow = (prefix: string) => [
   {
     icon: faMagnifyingGlassChart,
     title: "Inspect",
     description: "Read local plugin metadata and WordPress.org review state at a glance.",
-    command: "npx pressship info ./my-plugin"
+    command: `${prefix} info ./my-plugin`
   },
   {
     icon: faBoxArchive,
     title: "Package",
     description: "Validate readme.txt, run Plugin Check, build an installable zip.",
-    command: "npx pressship pack ./my-plugin"
+    command: `${prefix} pack ./my-plugin`
   },
   {
     icon: faCloudArrowUp,
     title: "Publish",
     description: "Route to new submission, pending reupload, or SVN release with setup checks.",
-    command: "npx pressship publish ./my-plugin"
+    command: `${prefix} publish ./my-plugin`
   },
   {
     icon: faPlay,
     title: "Demo",
     description: "Boot the plugin in WordPress Playground using its own requirements.",
-    command: "npx pressship demo ./my-plugin"
+    command: `${prefix} demo ./my-plugin`
   }
 ];
 
@@ -230,8 +231,10 @@ function commandDocPath(name: string): string {
   return name;
 }
 
+
 function InstallStrip(): ReactNode {
-  const [active, setActive] = useState(0);
+  const { method, setMethod } = useInstallMethod();
+  const active = installMethods.findIndex((m) => m.label === method) === -1 ? 0 : installMethods.findIndex((m) => m.label === method);
   const [copiedInstall, setCopiedInstall] = useState(false);
 
   const copyInstall = useCallback(async () => {
@@ -254,7 +257,7 @@ function InstallStrip(): ReactNode {
             role="tab"
             aria-selected={i === active}
             className={`${styles.installTab} ${i === active ? styles.installTabActive : ""}`}
-            onClick={() => setActive(i)}>
+            onClick={() => setMethod(installMethods[i].label as InstallMethod)}>
             {method.label}
           </button>
         ))}
@@ -279,6 +282,7 @@ export default function Home(): ReactNode {
   const logoDarkUrl = useBaseUrl("/img/pressship-square-dark.png");
   const filigranLogoUrl = useBaseUrl("/img/pressship-square-dark.png");
   const [copied, setCopied] = useState(false);
+  const { method, prefix } = useInstallMethod();
 
   const copySkill = async () => {
     try {
@@ -289,6 +293,9 @@ export default function Home(): ReactNode {
       /* ignore */
     }
   };
+
+  const currentSession = getSession(prefix);
+  const currentWorkflow = getWorkflow(prefix);
 
   return (
     <Layout
@@ -363,14 +370,14 @@ export default function Home(): ReactNode {
                 </div>
 
                 <div className={styles.terminalBody}>
-                  {session.map((block, index) => (
+                  {currentSession.map((block, index) => (
                     <div key={block.command} className={styles.terminalBlock}>
                       <div className={styles.terminalLine}>
                         <span className={styles.prompt}>$</span>
                         <span className={styles.cmd}>{block.command}</span>
                       </div>
                       <pre className={styles.terminalOut}>{block.output}</pre>
-                      {index < session.length - 1 && <div className={styles.terminalDivider} />}
+                      {index < currentSession.length - 1 && <div className={styles.terminalDivider} />}
                     </div>
                   ))}
                 </div>
@@ -414,7 +421,7 @@ export default function Home(): ReactNode {
             </div>
 
             <ol className={styles.workflowGrid}>
-              {workflow.map((step, index) => (
+              {currentWorkflow.map((step, index) => (
                 <li key={step.title} className={styles.workflowCard}>
                   <div className={styles.workflowHeader}>
                     <span className={styles.workflowIcon} aria-hidden="true">
@@ -482,7 +489,7 @@ export default function Home(): ReactNode {
                   to={`/docs/commands/${commandDocPath(command.name)}`}
                   className={styles.commandRow}>
                   <span className={styles.commandNum}>{String(index + 1).padStart(2, "0")}</span>
-                  <code className={styles.commandName}>pressship {command.name}</code>
+                  <code className={styles.commandName}>{prefix} {command.name}</code>
                   <span className={styles.commandDesc}>{command.description}</span>
                   <FontAwesomeIcon icon={faArrowRight} className={styles.commandArrow} />
                 </Link>

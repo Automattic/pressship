@@ -66,6 +66,10 @@ const config: Config = {
           label: "Docs"
         },
         {
+          type: "custom-installMethod",
+          position: "right"
+        },
+        {
           href: "https://github.com/f/pressship",
           label: "GitHub",
           position: "right"
