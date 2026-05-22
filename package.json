@@ -21,9 +21,10 @@
     "build": "tsc -p tsconfig.json",
     "browsers:install": "playwright install chromium",
     "dev": "tsx src/cli.ts",
-    "docs:build": "npm run build --prefix website",
-    "docs:dev": "npm run start --prefix website",
-    "docs:serve": "npm run serve --prefix website",
+    "check-docs": "node -e \"const fs=require('fs');if(!fs.existsSync('website/node_modules')){console.error('\\x1b[31mError: Please run \\x1b[33mnpm install --prefix website\\x1b[31m first.\\x1b[0m');process.exit(1)}\"",
+    "docs:build": "npm run check-docs && npm run build --prefix website",
+    "docs:dev": "npm run check-docs && npm run start --prefix website",
+    "docs:serve": "npm run check-docs && npm run serve --prefix website",
     "test": "vitest run",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
