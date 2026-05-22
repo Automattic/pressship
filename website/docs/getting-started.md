@@ -33,10 +33,11 @@ npx pressship status ./my-plugin
 ## Package And Validate
 
 ```bash
+npx pressship verify ./my-plugin
 npx pressship pack ./my-plugin
 ```
 
-`pack` validates `readme.txt`, runs Plugin Check, and writes a WordPress-installable `{slug}.zip` to the current directory.
+`verify` validates `readme.txt` and runs Plugin Check without creating an artifact. `pack` runs the same checks and writes a WordPress-installable `{slug}.zip` to the current directory.
 
 ## Publish
 

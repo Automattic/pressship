@@ -4,6 +4,7 @@ import { login } from "./auth/login.js";
 import { logout } from "./auth/logout.js";
 import { whoami, type WhoamiOptions } from "./auth/whoami.js";
 import { pack, type PackOptions } from "./package/pack.js";
+import { verify, type VerifyOptions } from "./package/verify.js";
 import { publish, type PublishOptions } from "./wordpress-org/publish.js";
 import { submit, type SubmitOptions } from "./wordpress-org/submit.js";
 import { status, type StatusOptions } from "./wordpress-org/state.js";
@@ -97,6 +98,16 @@ program
   .option("--ignore <glob>", "Ignore files in the package; repeat for multiple globs", collectValues, [])
   .option("-y, --yes", "Continue without interactive confirmations where possible")
   .action((pluginPath: string | undefined, options: PublishOptions) => run(() => publish(pluginPath, options))());
+
+program
+  .command("verify")
+  .description("Run readme validation and Plugin Check without packaging or publishing.")
+  .argument("[plugin-path]", "Path to the WordPress plugin directory")
+  .option("--ignore <glob>", "Ignore files while staging Plugin Check; repeat for multiple globs", collectValues, [])
+  .option("--skip-readme-validator", "Skip the remote WordPress.org readme validator")
+  .option("--wp-path <path>", "WordPress installation path for `wp plugin check`")
+  .option("--json", "Print verification details as JSON")
+  .action((pluginPath: string | undefined, options: VerifyOptions) => run(() => verify(pluginPath, options))());
 
 program
   .command("pack")

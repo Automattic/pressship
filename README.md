@@ -52,8 +52,8 @@ npx pressship login
 # 2. (Optional) Verify the saved session
 npx pressship whoami
 
-# 3. Validate, package, and check without uploading
-npx pressship publish ./my-plugin --dry-run
+# 3. Verify the plugin without packaging or uploading
+npx pressship verify ./my-plugin
 
 # 4. Submit for review or release an approved plugin
 npx pressship publish ./my-plugin
@@ -96,6 +96,7 @@ Playwright Chromium is installed automatically the first time browser automation
 | `pressship get` | Checkout or update a WordPress.org plugin SVN working copy. |
 | `pressship status` | Read review state from the logged-in developer dashboard. |
 | `pressship version <patch\|minor\|major>` | Bump the plugin header version and readme stable tag together. |
+| `pressship verify` | Run readme validation and Plugin Check without creating a zip. |
 | `pressship pack` | Validate, run Plugin Check, and write an installable zip. |
 | `pressship publish` | Route to submit or release based on current state. |
 | `pressship submit` | Upload a zip to WordPress.org review (or reupload). |
@@ -148,6 +149,19 @@ Before uploading or committing an SVN release, `publish` verifies the plugin wit
 Need fine-grained control? Use the explicit subcommands `submit` and `release`.
 
 ## Packaging
+
+```bash
+pressship verify ./my-plugin
+```
+
+Runs readme validation and Plugin Check without writing a zip or publishing anything.
+
+```bash
+pressship verify ./my-plugin --ignore "assets/**/*.mp4"
+pressship verify ./my-plugin --skip-readme-validator
+pressship verify ./my-plugin --wp-path /path/to/wordpress
+pressship verify ./my-plugin --json
+```
 
 ```bash
 pressship pack ./my-plugin

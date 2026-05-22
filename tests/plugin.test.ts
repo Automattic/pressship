@@ -4,6 +4,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { createPluginZip, listPackageFiles, stagePluginDirectory } from "../src/package/archive.js";
 import { createPluginPack, skippedPackValidation, summarizePackResult, validatePluginPack } from "../src/package/pack.js";
+import { summarizeVerifyResult } from "../src/package/verify.js";
 import { discoverPluginProject, resolvePluginProjectPath } from "../src/plugin/discover.js";
 import { parsePluginHeaders } from "../src/plugin/headers.js";
 import { parseReadme, validateReadmeLocally } from "../src/plugin/readme.js";
@@ -213,6 +214,49 @@ describe("packaging", () => {
         message: "WordPress.org packages require a readme.txt file."
       }
     ]);
+  });
+});
+
+describe("verification", () => {
+  it("summarizes successful verification results", async () => {
+    const root = await samplePlugin();
+    const project = await discoverPluginProject(root);
+
+    expect(summarizeVerifyResult(project, skippedPackValidation())).toMatchObject({
+      ok: true,
+      plugin: {
+        rootDir: root,
+        mainFile: path.join(root, "example-plugin.php"),
+        name: "Example Plugin",
+        slug: "example-plugin",
+        version: "1.2.3",
+        readmePath: path.join(root, "readme.txt")
+      },
+      validation: {
+        skipped: true,
+        readmeFindings: [],
+        pluginCheckFindings: []
+      }
+    });
+  });
+
+  it("marks blocking verification findings as not ok", async () => {
+    const root = await samplePlugin();
+    const project = await discoverPluginProject(root);
+
+    expect(
+      summarizeVerifyResult(project, {
+        skipped: false,
+        readmeFindings: [
+          {
+            severity: "error",
+            code: "readme.invalid",
+            message: "Readme is invalid."
+          }
+        ],
+        pluginCheckFindings: []
+      }).ok
+    ).toBe(false);
   });
 });
 

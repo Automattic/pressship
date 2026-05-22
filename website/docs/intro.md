@@ -20,6 +20,7 @@ npx pressship publish ./my-plugin
 - Plugin discovery from WordPress plugin headers.
 - `readme.txt` parsing and WordPress.org readme validation.
 - Managed WordPress.org Plugin Check setup.
+- Standalone `verify` checks before packaging or publishing.
 - WordPress-installable zip generation.
 - Smart `publish` routing between review submission and SVN release.
 - Explicit `submit` and `release` commands for WordPress.org workflows.

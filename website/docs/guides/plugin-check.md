@@ -20,6 +20,7 @@ It can automatically:
 This means most users can run:
 
 ```bash
+pressship verify ./my-plugin
 pressship submit ./my-plugin --dry-run
 ```
 
@@ -29,6 +30,7 @@ If you already have a local WordPress install with Plugin Check available, pass 
 
 ```bash
 pressship submit ./my-plugin --wp-path /path/to/wordpress
+pressship verify ./my-plugin --wp-path /path/to/wordpress
 pressship pack ./my-plugin --wp-path /path/to/wordpress
 pressship release ./my-plugin --wp-path /path/to/wordpress
 ```
