@@ -1,0 +1,28 @@
+{
+  "name": "f/pressship",
+  "type": "wp-cli-package",
+  "description": "Run Pressship from WP-CLI by forwarding to the Node.js Pressship package.",
+  "homepage": "https://pressship.org",
+  "license": "MIT",
+  "require": {
+    "php": ">=7.4",
+    "wp-cli/wp-cli": "^2.8"
+  },
+  "autoload": {
+    "classmap": [
+      "wp-cli/src/"
+    ],
+    "files": [
+      "wp-cli/pressship-command.php"
+    ]
+  },
+  "extra": {
+    "commands": [
+      "ship"
+    ]
+  },
+  "support": {
+    "issues": "https://github.com/f/pressship/issues",
+    "source": "https://github.com/f/pressship"
+  }
+}

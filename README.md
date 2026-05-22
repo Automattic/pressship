@@ -109,6 +109,24 @@ Get help for any command:
 pressship <command> --help
 ```
 
+## WP-CLI Package
+
+Pressship can also be installed as a WP-CLI package:
+
+```bash
+wp package install f/pressship
+```
+
+That adds a `wp ship` command:
+
+```bash
+wp ship verify ./my-plugin
+wp ship pack ./my-plugin
+wp ship publish ./my-plugin --dry-run
+```
+
+The WP-CLI package is intentionally a thin PHP bridge. It forwards arguments to the Node.js Pressship package through `npx`, so the publishing logic stays in one place. Node.js 20+ and npm/npx are still required.
+
 ## Authentication
 
 ```bash

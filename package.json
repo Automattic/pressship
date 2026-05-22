@@ -1,6 +1,6 @@
 {
   "name": "pressship",
-  "version": "0.1.9",
+  "version": "0.1.10",
   "description": "Submit and release WordPress.org plugins from the command line.",
   "homepage": "https://pressship.org",
   "bin": {
@@ -9,7 +9,9 @@
   "files": [
     ".claude",
     "assets",
+    "composer.json",
     "dist",
+    "wp-cli",
     "README.md",
     "LICENSE"
   ],
