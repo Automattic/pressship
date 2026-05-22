@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useState, useCallback, type ReactNode } from "react";
 import Link from "@docusaurus/Link";
 import useBaseUrl from "@docusaurus/useBaseUrl";
 import Layout from "@theme/Layout";
@@ -150,6 +150,12 @@ const commands = [
   { name: "version", description: "Bump plugin and readme version together." }
 ];
 
+const installMethods = [
+  { label: "npx", command: "npx pressship publish ./my-plugin" },
+  { label: "npm", command: "npm install -g pressship" },
+  { label: "wp-cli", command: "wp package install f/pressship" }
+];
+
 const skillCommand = "npx skills add f/pressship --skill wordpress-plugin-publish -a codex";
 
 const heroPhrases = [
@@ -222,6 +228,50 @@ function commandDocPath(name: string): string {
     return "list";
   }
   return name;
+}
+
+function InstallStrip(): ReactNode {
+  const [active, setActive] = useState(0);
+  const [copiedInstall, setCopiedInstall] = useState(false);
+
+  const copyInstall = useCallback(async () => {
+    try {
+      await navigator.clipboard.writeText(installMethods[active].command);
+      setCopiedInstall(true);
+      setTimeout(() => setCopiedInstall(false), 1600);
+    } catch {
+      /* ignore */
+    }
+  }, [active]);
+
+  return (
+    <div className={styles.installStrip}>
+      <div className={styles.installTabs} role="tablist">
+        {installMethods.map((method, i) => (
+          <button
+            key={method.label}
+            type="button"
+            role="tab"
+            aria-selected={i === active}
+            className={`${styles.installTab} ${i === active ? styles.installTabActive : ""}`}
+            onClick={() => setActive(i)}>
+            {method.label}
+          </button>
+        ))}
+      </div>
+      <div className={styles.installCommand} role="tabpanel">
+        <span className={styles.installPrompt}>$</span>
+        <code className={styles.installCode}>{installMethods[active].command}</code>
+        <button
+          type="button"
+          className={styles.installCopy}
+          onClick={copyInstall}
+          aria-label="Copy install command">
+          <FontAwesomeIcon icon={copiedInstall ? faCheck : faCopy} />
+        </button>
+      </div>
+    </div>
+  );
 }
 
 export default function Home(): ReactNode {
@@ -300,6 +350,8 @@ export default function Home(): ReactNode {
                   <FontAwesomeIcon icon={faArrowRight} style={{ marginLeft: "0.45rem", width: "0.85rem", height: "0.85rem" }} />
                 </Link>
               </div>
+
+              <InstallStrip />
 
               {/* ─────────── TERMINAL (no tabs, sequential session) ─────────── */}
               <div className={styles.terminal} aria-label="Pressship terminal session">

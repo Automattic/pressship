@@ -251,6 +251,118 @@
   flex-wrap: wrap;
 }
 
+/* ─────────── INSTALL STRIP ─────────── */
+
+.installStrip {
+  display: inline-flex;
+  align-items: stretch;
+  margin: 1.5rem auto 0;
+  border: 1px solid var(--pp-border);
+  border-radius: 999px;
+  background: var(--pp-card);
+  overflow: hidden;
+}
+
+.installTabs {
+  display: flex;
+  align-items: stretch;
+  border-right: 1px solid var(--pp-border);
+}
+
+.installTab {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  padding: 0.4rem 0.75rem;
+  font-family: var(--ifm-font-family-monospace);
+  font-size: 0.76rem;
+  font-weight: 500;
+  color: var(--pp-muted-foreground);
+  cursor: pointer;
+  transition: color 140ms ease, background 140ms ease;
+  position: relative;
+}
+
+.installTab:not(:last-child)::after {
+  content: "";
+  position: absolute;
+  right: 0;
+  top: 25%;
+  height: 50%;
+  width: 1px;
+  background: var(--pp-border);
+}
+
+.installTab:hover {
+  color: var(--pp-foreground);
+  background: var(--pp-muted);
+}
+
+.installTabActive {
+  color: var(--pp-foreground);
+  background: var(--pp-muted);
+  font-weight: 600;
+}
+
+.installCommand {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.4rem 0.55rem 0.4rem 0.75rem;
+  font-family: var(--ifm-font-family-monospace);
+  font-size: 0.84rem;
+  min-width: 0;
+}
+
+.installPrompt {
+  color: var(--pp-primary);
+  user-select: none;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+.installCode {
+  background: transparent;
+  border: 0;
+  padding: 0;
+  color: var(--pp-foreground);
+  font-family: inherit;
+  font-size: inherit;
+  white-space: nowrap;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.installCode::-webkit-scrollbar {
+  display: none;
+}
+
+.installCopy {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.6rem;
+  height: 1.6rem;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--pp-muted-foreground);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: color 140ms ease, background 140ms ease;
+}
+
+.installCopy:hover {
+  color: var(--pp-foreground);
+  background: var(--pp-muted);
+}
+
+.installCopy svg {
+  width: 0.72rem;
+  height: 0.72rem;
+}
+
 /* ─────────── TERMINAL (sequential session, no tabs) ─────────── */
 
 .terminal {
@@ -948,5 +1060,31 @@
 
   .heroSkillCopy span {
     display: none;
+  }
+
+  .installStrip {
+    flex-direction: column;
+    border-radius: var(--pp-radius-lg);
+    width: 100%;
+  }
+
+  .installTabs {
+    border-right: 0;
+    border-bottom: 1px solid var(--pp-border);
+  }
+
+  .installTab {
+    flex: 1;
+  }
+
+  .installTab:not(:last-child)::after {
+    right: 0;
+    top: 20%;
+    height: 60%;
+  }
+
+  .installCommand {
+    padding: 0.5rem 0.55rem 0.5rem 0.75rem;
+    font-size: 0.78rem;
   }
 }
