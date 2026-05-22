@@ -55,7 +55,7 @@ class Pressship_WP_CLI_Command {
 		$npx     = getenv( 'PRESSSHIP_NPX' ) ?: self::default_npx_binary();
 		$package = getenv( 'PRESSSHIP_NPX_PACKAGE' ) ?: self::default_npx_package();
 		$argv    = array_merge(
-			array( $npx, '--yes', $package ),
+			array( $npx, '--yes', '--prefix', self::npx_prefix_dir(), '--package', $package, 'pressship' ),
 			array_values( $args ),
 			self::assoc_args_to_argv( $assoc_args )
 		);
@@ -144,6 +144,20 @@ class Pressship_WP_CLI_Command {
 		}
 
 		return 'pressship';
+	}
+
+	/**
+	 * Isolated npm prefix so npx does not resolve a same-named local workspace.
+	 *
+	 * @return string
+	 */
+	private static function npx_prefix_dir() {
+		$directory = rtrim( sys_get_temp_dir(), DIRECTORY_SEPARATOR ) . DIRECTORY_SEPARATOR . 'pressship-wp-cli-npx';
+		if ( ! is_dir( $directory ) ) {
+			mkdir( $directory, 0700, true );
+		}
+
+		return $directory;
 	}
 
 	/**
