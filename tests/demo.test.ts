@@ -67,6 +67,10 @@ describe("plugin demo blueprints", () => {
         data: expect.stringContaining("E_USER_DEPRECATED")
       }
     ]);
+    expect(createPlaygroundCompatibilitySteps()[1].data).toEqual(expect.stringContaining("wp_set_auth_cookie"));
+    expect(createPlaygroundCompatibilitySteps()[1].data).toEqual(expect.stringContaining("wp_create_user('admin', 'password'"));
+    expect(createPlaygroundCompatibilitySteps()[1].data).toEqual(expect.stringContaining("send_frame_options_header"));
+    expect(createPlaygroundCompatibilitySteps()[1].data).toEqual(expect.stringContaining("header_remove('X-Frame-Options')"));
   });
 });
 

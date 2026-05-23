@@ -24,7 +24,8 @@ const publishOptionsSchema = z.object({
   svnDir: z.string().optional(),
   username: z.string().optional(),
   message: z.string().optional(),
-  installSvn: z.boolean().default(true)
+  installSvn: z.boolean().default(true),
+  overview: z.string().optional()
 });
 
 export type PublishOptions = z.input<typeof publishOptionsSchema>;
@@ -190,7 +191,8 @@ function toSubmitOptions(options: z.infer<typeof publishOptionsSchema>): SubmitO
     outputDir: options.outputDir,
     wpPath: options.wpPath,
     ignore: options.ignore,
-    yes: options.yes
+    yes: options.yes,
+    overview: options.overview
   };
 }
 

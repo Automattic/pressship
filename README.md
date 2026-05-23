@@ -94,6 +94,7 @@ Playwright Chromium is installed automatically the first time browser automation
 | `pressship info` | Inspect local plugin metadata or hosted WordPress.org plugin info. |
 | `pressship ls` | List plugins for the saved account or a public WordPress.org profile. |
 | `pressship get` | Checkout or update a WordPress.org plugin SVN working copy. |
+| `pressship studio` | Start Pressship Studio for plugin operations, editing, and Playground previews. |
 | `pressship status` | Read review state from the logged-in developer dashboard. |
 | `pressship version <patch\|minor\|major>` | Bump the plugin header version and readme stable tag together. |
 | `pressship verify` | Run readme validation and Plugin Check without creating a zip. |
@@ -250,6 +251,18 @@ pressship publish
 ```
 
 When Pressship runs from the SVN checkout root, it treats `trunk/` as the plugin directory, bumps the version there, and routes `publish` to the SVN release flow.
+
+## Pressship Studio
+
+```bash
+pressship studio
+pressship studio --no-open
+pressship studio --port 9478
+```
+
+`studio` starts a localhost-only Pressship Studio workspace. It lists plugins from the saved WordPress.org session, remembers local plugin paths, clones and updates WordPress.org SVN checkouts, shows plugin metadata and readmes, opens local plugins in a VS Code-style editor, streams Playground output into the Studio terminal, previews Playground in an iframe, checks version state, bumps patch/minor/major versions, and runs dry-run-first publish/release flows.
+
+By default it binds to `127.0.0.1`, generates a per-run token for mutating API requests, and uses the same local Pressship config directory as the CLI.
 
 ## Inspecting submission state
 

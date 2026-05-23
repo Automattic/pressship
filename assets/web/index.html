@@ -1,0 +1,197 @@
+<!doctype html>
+<html lang="en" class="wp-toolbar">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light" />
+    <meta name="pressship-token" content="__PRESSSHIP_TOKEN__" />
+    <title>Pressship Studio &lsaquo; Admin</title>
+    <link
+      rel="preconnect"
+      href="https://cdn.jsdelivr.net"
+      crossorigin
+    />
+    <link
+      rel="stylesheet"
+      href="https://cdn.jsdelivr.net/npm/@icon/dashicons@0.9.0-alpha.4/dashicons.css"
+    />
+    <link rel="stylesheet" href="/style.css" />
+  </head>
+  <body class="wp-admin auto-fold admin-color-modern">
+    <div id="wpwrap">
+      <header id="wpadminbar" role="banner">
+        <div class="ab-left">
+          <a class="ab-brand" href="#" data-view-button="dashboard" aria-label="Pressship Studio home">
+            <img class="ab-brand-mark" src="/brand/pressship-symbol.png" alt="" />
+            <span class="ab-brand-name">Pressship Studio</span>
+          </a>
+        </div>
+        <div class="ab-right">
+          <button
+            class="ab-button ab-command"
+            type="button"
+            data-action="open-command"
+            title="Command Palette (⌘K)"
+          >
+            <span class="dashicons dashicons-search" aria-hidden="true"></span>
+            <span class="ab-command-label">Search or jump to…</span>
+            <kbd class="ab-kbd"><span data-kbd-mod>⌘</span>K</kbd>
+          </button>
+          <div class="ab-account" id="account-info">
+            <span class="dashicons dashicons-admin-users" aria-hidden="true"></span>
+            <span class="ab-account-label">Loading account…</span>
+          </div>
+        </div>
+      </header>
+
+      <div id="adminmenuback"></div>
+      <nav id="adminmenuwrap" aria-label="Main menu">
+        <ul id="adminmenu">
+          <li class="wp-has-current-submenu menu-top" data-view="dashboard">
+            <button class="menu-top" type="button" data-view-button="dashboard">
+              <span class="wp-menu-image" aria-hidden="true">
+                <span class="dashicons dashicons-dashboard"></span>
+              </span>
+              <span class="wp-menu-name">Dashboard</span>
+            </button>
+          </li>
+          <li class="menu-top" data-view="studio">
+            <button class="menu-top" type="button" data-view-button="studio">
+              <span class="wp-menu-image" aria-hidden="true">
+                <span class="dashicons dashicons-editor-code"></span>
+              </span>
+              <span class="wp-menu-name">Studio</span>
+            </button>
+          </li>
+          <li class="wp-menu-section">Plugins</li>
+          <li class="menu-top" data-view="remote">
+            <button class="menu-top" type="button" data-view-button="remote">
+              <span class="wp-menu-image" aria-hidden="true">
+                <span class="dashicons dashicons-admin-plugins"></span>
+              </span>
+              <span class="wp-menu-name">WordPress.org</span>
+            </button>
+          </li>
+          <li class="menu-top" data-view="local">
+            <button class="menu-top" type="button" data-view-button="local">
+              <span class="wp-menu-image" aria-hidden="true">
+                <span class="dashicons dashicons-download"></span>
+              </span>
+              <span class="wp-menu-name">Local Library</span>
+            </button>
+          </li>
+          <li class="wp-menu-section" id="playgrounds-section" hidden>Playgrounds</li>
+          <li id="playground-menu-items" class="wp-playground-menu" hidden></li>
+          <li class="wp-menu-section">Pressship</li>
+          <li class="menu-top" data-view="settings">
+            <button class="menu-top" type="button" data-view-button="settings">
+              <span class="wp-menu-image" aria-hidden="true">
+                <span class="dashicons dashicons-admin-generic"></span>
+              </span>
+              <span class="wp-menu-name">Settings</span>
+            </button>
+          </li>
+        </ul>
+      </nav>
+
+      <main id="wpcontent">
+        <div id="wpbody">
+          <div id="wpbody-content">
+            <div id="notice-stack" aria-live="polite"></div>
+
+            <section id="view-dashboard" class="wrap view is-active" data-view-name="dashboard">
+              <header class="ps-page-header">
+                <h1 class="wp-heading-inline">Dashboard</h1>
+              </header>
+              <hr class="wp-header-end" />
+              <div id="dashboard-content"></div>
+              <div class="postbox activity-box">
+                <h2><span class="dashicons dashicons-update"></span>Activity</h2>
+                <div id="activity-content" class="inside"></div>
+              </div>
+            </section>
+
+            <section id="view-remote" class="wrap view" data-view-name="remote">
+              <header class="ps-page-header">
+                <h1 class="wp-heading-inline">WordPress.org Plugins</h1>
+                <button class="page-title-action" type="button" data-action="refresh-remote">
+                  <span class="dashicons dashicons-update-alt" aria-hidden="true"></span>
+                  Refresh
+                </button>
+              </header>
+              <hr class="wp-header-end" />
+              <p class="description">Plugins visible to the saved WordPress.org account.</p>
+              <div id="remote-content" class="table-shell"></div>
+            </section>
+
+            <section id="view-local" class="wrap view" data-view-name="local">
+              <header class="ps-page-header">
+                <h1 class="wp-heading-inline">Local Library</h1>
+                <button class="page-title-action" type="button" data-action="choose-local-folder">
+                  <span class="dashicons dashicons-open-folder" aria-hidden="true"></span>
+                  Choose Folder
+                </button>
+              </header>
+              <hr class="wp-header-end" />
+              <p class="description">
+                Plugin folders Pressship watches locally. Choose a folder or clone from WordPress.org.
+              </p>
+              <div id="local-content" class="table-shell"></div>
+            </section>
+
+            <section id="view-studio" class="wrap view studio-view" data-view-name="studio">
+              <div id="studio-content" class="studio-shell"></div>
+            </section>
+
+            <section id="view-settings" class="wrap view" data-view-name="settings">
+              <header class="ps-page-header">
+                <h1 class="wp-heading-inline">Settings</h1>
+              </header>
+              <hr class="wp-header-end" />
+              <p class="description">
+                Defaults used by Pressship Studio. Saved per-user under your config directory. The
+                dashboard fetches Dashicons from a CDN
+                (<code>cdn.jsdelivr.net/npm/dashicons</code>).
+              </p>
+              <div id="settings-content"></div>
+            </section>
+          </div>
+        </div>
+      </main>
+
+      <aside id="detail-panel" aria-live="polite" aria-hidden="true"></aside>
+    </div>
+
+    <div class="ps-command-palette" id="command-palette" hidden>
+      <div class="ps-command-backdrop" data-action="close-command"></div>
+      <div class="ps-command-modal" role="dialog" aria-modal="true" aria-label="Command palette">
+        <div class="ps-command-header">
+          <span class="dashicons dashicons-search ps-command-icon" aria-hidden="true"></span>
+          <input
+            id="command-input"
+            type="text"
+            placeholder="Type a command, view, or plugin slug…"
+            autocomplete="off"
+            spellcheck="false"
+          />
+          <button
+            class="ps-command-close"
+            type="button"
+            data-action="close-command"
+            aria-label="Close"
+          >
+            <span class="dashicons dashicons-no-alt" aria-hidden="true"></span>
+          </button>
+        </div>
+        <ul class="ps-command-list" id="command-list" role="listbox"></ul>
+        <footer class="ps-command-footer">
+          <span><kbd>↑</kbd><kbd>↓</kbd> navigate</span>
+          <span><kbd>↵</kbd> select</span>
+          <span><kbd>esc</kbd> close</span>
+        </footer>
+      </div>
+    </div>
+
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>

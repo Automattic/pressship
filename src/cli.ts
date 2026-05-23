@@ -14,6 +14,7 @@ import { demo, type DemoOptions } from "./plugin/demo.js";
 import { info, type InfoOptions } from "./plugin/info.js";
 import { listPlugins, type ListOptions } from "./plugin/list.js";
 import { version } from "./plugin/version.js";
+import { studio, type StudioOptions } from "./web/index.js";
 
 const program = new Command();
 
@@ -56,6 +57,14 @@ program
   .option("--remote", "Fetch hosted WordPress.org plugin info even when the target is local")
   .option("--json", "Print plugin info as JSON")
   .action((target: string | undefined, options: InfoOptions) => run(() => info(target, options))());
+
+program
+  .command("studio")
+  .description("Start Pressship Studio.")
+  .option("--host <host>", "Host to bind", "127.0.0.1")
+  .option("--port <port>", "Port for Pressship Studio")
+  .option("--no-open", "Start without opening a browser")
+  .action((options: StudioOptions) => run(() => studio(options))());
 
 program
   .command("ls")

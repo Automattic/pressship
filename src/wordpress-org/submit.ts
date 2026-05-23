@@ -21,7 +21,8 @@ const submitOptionsSchema = z.object({
   yes: z.boolean().default(false),
   outputDir: z.string().optional(),
   ignore: z.array(z.string()).default([]),
-  wpPath: z.string().optional()
+  wpPath: z.string().optional(),
+  overview: z.string().optional()
 });
 
 export type SubmitOptions = z.input<typeof submitOptionsSchema>;
@@ -103,10 +104,12 @@ export async function submit(pluginPath: string | undefined, rawOptions: SubmitO
   }
 
   await ensureSession();
-  const overview = await input({
-    message: "Brief plugin overview for the WordPress.org submission form",
-    default: project.headers.description ?? ""
-  });
+  const overview =
+    options.overview ??
+    (await input({
+      message: "Brief plugin overview for the WordPress.org submission form",
+      default: project.headers.description ?? ""
+    }));
 
   if (!options.yes) {
     await select({

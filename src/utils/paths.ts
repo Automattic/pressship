@@ -35,6 +35,22 @@ export function getSvnCredentialsPath(): string {
   return path.join(getConfigDir(), "svn-credentials.json");
 }
 
+export function getWebLocalPluginsPath(): string {
+  return path.join(getConfigDir(), "studio-local-plugins.json");
+}
+
+export function getWebSettingsPath(): string {
+  return path.join(getConfigDir(), "studio-settings.json");
+}
+
+export function getLegacyWebLocalPluginsPath(): string {
+  return path.join(getConfigDir(), "web-local-plugins.json");
+}
+
+export function getLegacyWebSettingsPath(): string {
+  return path.join(getConfigDir(), "web-settings.json");
+}
+
 export function getDebugDir(): string {
   return path.join(getConfigDir(), "debug");
 }

@@ -14,6 +14,7 @@ const sidebars: SidebarsConfig = {
         "commands/list",
         "commands/get",
         "commands/demo",
+        "commands/studio",
         "commands/status",
         "commands/version",
         "commands/verify",

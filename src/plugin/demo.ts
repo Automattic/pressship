@@ -21,6 +21,51 @@ set_error_handler(static function (int $severity): bool {
 if (! function_exists('is_plugin_active')) {
     require_once ABSPATH . 'wp-admin/includes/plugin.php';
 }
+
+function pressship_remove_frame_options_header(): void {
+    remove_action('admin_init', 'send_frame_options_header');
+    remove_action('login_init', 'send_frame_options_header');
+    header_remove('X-Frame-Options');
+}
+
+pressship_remove_frame_options_header();
+
+add_filter('wp_headers', static function (array $headers): array {
+    unset($headers['X-Frame-Options']);
+    unset($headers['x-frame-options']);
+    return $headers;
+});
+
+add_action('init', 'pressship_remove_frame_options_header', 0);
+add_action('admin_init', 'pressship_remove_frame_options_header', 0);
+add_action('admin_init', 'pressship_remove_frame_options_header', PHP_INT_MAX);
+add_action('login_init', 'pressship_remove_frame_options_header', 0);
+add_action('login_init', 'pressship_remove_frame_options_header', PHP_INT_MAX);
+add_action('send_headers', 'pressship_remove_frame_options_header', PHP_INT_MAX);
+
+add_action('init', static function (): void {
+    if (! username_exists('admin')) {
+        $user_id = wp_create_user('admin', 'password', 'admin@example.test');
+        if (! is_wp_error($user_id)) {
+            $user = new WP_User($user_id);
+            $user->set_role('administrator');
+        }
+    }
+
+    if (! is_admin() || is_user_logged_in() || ! isset($_GET['pressship_auto_login'])) {
+        return;
+    }
+
+    $user = get_user_by('login', 'admin');
+    if (! $user) {
+        return;
+    }
+
+    wp_set_current_user($user->ID);
+    wp_set_auth_cookie($user->ID);
+    wp_safe_redirect(remove_query_arg('pressship_auto_login'));
+    exit;
+});
 `;
 
 const demoOptionsSchema = z.object({

@@ -142,6 +142,7 @@ const commands = [
   { name: "info", description: "Inspect local plugin metadata or hosted plugin info." },
   { name: "ls", description: "List profile plugins and saved-account SVN committer plugins." },
   { name: "get", description: "Checkout or update SVN, with Subversion setup help." },
+  { name: "studio", description: "Open the local editor, terminal, and Playground preview." },
   { name: "status", description: "Read submission state from the developer dashboard." },
   { name: "pack", description: "Validate, run Plugin Check, and write an installable zip." },
   { name: "publish", description: "Route to submit or release based on current state." },
