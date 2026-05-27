@@ -1,7 +1,8 @@
 import { createHash, randomBytes } from "node:crypto";
 import { createReadStream } from "node:fs";
-import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, readFile, rm, stat, unlink, writeFile } from "node:fs/promises";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
+import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { spawn, type ChildProcess } from "node:child_process";
 import path from "node:path";
@@ -12,7 +13,7 @@ import { hasSavedSession } from "../auth/session.js";
 import { getWordPressOrgAccount } from "../auth/whoami.js";
 import { createPluginPack, summarizePackResult, validatePluginPack } from "../package/pack.js";
 import { discoverPluginProject, resolvePluginProjectPath } from "../plugin/discover.js";
-import { createDemoLaunchPlan } from "../plugin/demo.js";
+import { createDemoLaunchPlan, resetPlaygroundSite } from "../plugin/demo.js";
 import { fetchHostedPluginInfo, getPluginInfo } from "../plugin/info.js";
 import { getPluginList } from "../plugin/list.js";
 import { bumpVersion, updatePluginHeaderVersion, updateReadmeStableTag, type VersionBump } from "../plugin/version.js";
@@ -27,13 +28,27 @@ import { ensureCacheDir, getConfigDir } from "../utils/paths.js";
 import { addLocalPluginPath, getLocalPlugin, listLocalPlugins, removeLocalPlugin } from "./registry.js";
 import { WebJobManager, type WebJobContext } from "./jobs.js";
 import { getVersionState } from "./version-state.js";
-import { resolveFreePort } from "./ports.js";
-import { readWebSettings, webSettingsSchema, writeWebSettings } from "./settings.js";
+import { isPortAvailable, resolveFreePort } from "./ports.js";
+import { readWebSettings, webSettingsSchema, writeWebSettings, type WebSettings } from "./settings.js";
+import {
+  createAiAssistantPrompt,
+  detectAiAssistance,
+  describeAiAssistantRun,
+  installedAiAssistantIds,
+  runAiAssistant,
+  type InstalledAiAssistantId
+} from "./ai-assistance.js";
 import {
   addStudioPluginCheckLineHints,
   normalizeStudioPluginCheckFindings,
   summarizeStudioPluginCheckFindings
 } from "./plugin-check.js";
+import {
+  readStudioPluginCheckState,
+  removeStudioPluginCheckFindingsForFiles,
+  removeStudioPluginCheckState,
+  writeStudioPluginCheckState
+} from "./plugin-check-state.js";
 
 const mutationMethods = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 const addLocalPluginSchema = z.object({ path: z.string().min(1) });
@@ -42,6 +57,13 @@ const writeStudioFileSchema = z.object({
   path: z.string().min(1),
   content: z.string()
 });
+const studioAiChangeSchema = z.object({
+  path: z.string().min(1),
+  status: z.enum(["created", "modified", "deleted"]),
+  beforeContent: z.string().optional(),
+  afterContent: z.string().optional()
+});
+const installedAiAssistantSchema = z.enum(installedAiAssistantIds);
 const jobSchema = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("clone"),
@@ -56,6 +78,13 @@ const jobSchema = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("check"),
     localId: z.string().min(1)
+  }),
+  z.object({
+    type: z.literal("ai-chat"),
+    localId: z.string().min(1),
+    prompt: z.string().min(1),
+    assistant: installedAiAssistantSchema.optional(),
+    selectedFile: z.string().optional()
   }),
   z.object({
     type: z.literal("dry-run-publish"),
@@ -98,6 +127,15 @@ type ManagedPlayground = PlaygroundInstance & {
   child: ChildProcess;
 };
 
+type PlaygroundRequestContext = {
+  token: string;
+  jobs: WebJobManager;
+  approvals: Map<string, Approval>;
+  playgrounds: Map<string, ManagedPlayground>;
+  playgroundPortReservations: Set<number>;
+  staticDir: string;
+};
+
 export type StartedWebServer = {
   server: Server;
   url: string;
@@ -114,9 +152,17 @@ export async function startWebServer(options: WebServerOptions = {}): Promise<St
   const jobs = new WebJobManager();
   const approvals = new Map<string, Approval>();
   const playgrounds = new Map<string, ManagedPlayground>();
+  const playgroundPortReservations = new Set<number>();
   const staticDir = resolveStaticDir();
   const server = createServer((request, response) => {
-    void handleRequest(request, response, { token, jobs, approvals, playgrounds, staticDir });
+    void handleRequest(request, response, {
+      token,
+      jobs,
+      approvals,
+      playgrounds,
+      playgroundPortReservations,
+      staticDir
+    });
   });
 
   await new Promise<void>((resolve, reject) => {
@@ -134,6 +180,7 @@ export async function startWebServer(options: WebServerOptions = {}): Promise<St
   server.on("close", () => {
     jobs.cancelRunningJobs();
     stopPlaygrounds(playgrounds);
+    playgroundPortReservations.clear();
   });
 
   return {
@@ -144,6 +191,7 @@ export async function startWebServer(options: WebServerOptions = {}): Promise<St
     close: async () => {
       jobs.cancelRunningJobs();
       stopPlaygrounds(playgrounds);
+      playgroundPortReservations.clear();
       await new Promise<void>((resolve, reject) => {
         server.close((error) => (error ? reject(error) : resolve()));
       });
@@ -154,13 +202,7 @@ export async function startWebServer(options: WebServerOptions = {}): Promise<St
 async function handleRequest(
   request: IncomingMessage,
   response: ServerResponse,
-  context: {
-    token: string;
-    jobs: WebJobManager;
-    approvals: Map<string, Approval>;
-    playgrounds: Map<string, ManagedPlayground>;
-    staticDir: string;
-  }
+  context: PlaygroundRequestContext
 ): Promise<void> {
   try {
     const url = new URL(request.url ?? "/", "http://localhost");
@@ -203,13 +245,7 @@ async function handleApi(
   request: IncomingMessage,
   response: ServerResponse,
   url: URL,
-  context: {
-    token: string;
-    jobs: WebJobManager;
-    approvals: Map<string, Approval>;
-    playgrounds: Map<string, ManagedPlayground>;
-    staticDir: string;
-  }
+  context: PlaygroundRequestContext
 ): Promise<void> {
   const method = request.method ?? "GET";
 
@@ -242,6 +278,11 @@ async function handleApi(
     return;
   }
 
+  if (method === "GET" && url.pathname === "/api/ai-assistance") {
+    sendJson(response, 200, await detectAiAssistance());
+    return;
+  }
+
   if (method === "PUT" && url.pathname === "/api/settings") {
     const body = webSettingsSchema.parse(await readJson(request));
     sendJson(response, 200, await writeWebSettings(body));
@@ -271,7 +312,12 @@ async function handleApi(
 
   const deleteLocalMatch = url.pathname.match(/^\/api\/plugins\/local\/([^/]+)$/);
   if (method === "DELETE" && deleteLocalMatch) {
-    sendJson(response, 200, { removed: await removeLocalPlugin(decodeURIComponent(deleteLocalMatch[1])) });
+    const localId = decodeURIComponent(deleteLocalMatch[1]);
+    const removed = await removeLocalPlugin(localId);
+    if (removed) {
+      await removeStudioPluginCheckState(localId);
+    }
+    sendJson(response, 200, { removed });
     return;
   }
 
@@ -295,6 +341,14 @@ async function handleApi(
     return;
   }
 
+  const studioCheckStateMatch = url.pathname.match(/^\/api\/plugins\/local\/([^/]+)\/check-state$/);
+  if (method === "GET" && studioCheckStateMatch) {
+    const localId = decodeURIComponent(studioCheckStateMatch[1]);
+    await requireLocalPlugin(localId);
+    sendJson(response, 200, { state: await readStudioPluginCheckState(localId) });
+    return;
+  }
+
   const studioFileContentMatch = url.pathname.match(/^\/api\/plugins\/local\/([^/]+)\/files\/content$/);
   if (method === "GET" && studioFileContentMatch) {
     const plugin = await requireLocalPlugin(decodeURIComponent(studioFileContentMatch[1]));
@@ -304,9 +358,37 @@ async function handleApi(
   }
 
   if (method === "PUT" && studioFileContentMatch) {
-    const plugin = await requireLocalPlugin(decodeURIComponent(studioFileContentMatch[1]));
+    const localId = decodeURIComponent(studioFileContentMatch[1]);
+    const plugin = await requireLocalPlugin(localId);
     const body = writeStudioFileSchema.parse(await readJson(request));
-    sendJson(response, 200, await writeStudioFile(plugin.path, body.path, body.content));
+    const saved = await writeStudioFile(plugin.path, body.path, body.content);
+    sendJson(response, 200, {
+      ...saved,
+      checkState: await removeStudioPluginCheckFindingsForFiles(localId, [saved.path])
+    });
+    return;
+  }
+
+  const studioAiChangeApplyMatch = url.pathname.match(/^\/api\/plugins\/local\/([^/]+)\/ai-changes\/apply$/);
+  if (method === "POST" && studioAiChangeApplyMatch) {
+    const localId = decodeURIComponent(studioAiChangeApplyMatch[1]);
+    const plugin = await requireLocalPlugin(localId);
+    const body = studioAiChangeSchema.parse(await readJson(request));
+    try {
+      const applied = await applyStudioAiChange(plugin.path, body);
+      const checkState = await removeStudioPluginCheckFindingsForFiles(localId, [applied.path]);
+      sendJson(response, 200, {
+        ...applied,
+        files: (await listStudioFiles(plugin.path)).files,
+        checkState
+      });
+    } catch (error) {
+      if (error instanceof StudioAiChangeConflictError) {
+        sendJson(response, 409, { error: { message: error.message, code: "ai_change_conflict" } });
+        return;
+      }
+      throw error;
+    }
     return;
   }
 
@@ -322,7 +404,13 @@ async function handleApi(
 
   if (method === "POST" && url.pathname === "/api/jobs") {
     const body = jobSchema.parse(await readJson(request));
-    const job = createWebJob(body, context.jobs, context.approvals, context.playgrounds);
+    const job = createWebJob(
+      body,
+      context.jobs,
+      context.approvals,
+      context.playgrounds,
+      context.playgroundPortReservations
+    );
     sendJson(response, 202, job);
     return;
   }
@@ -358,18 +446,25 @@ function createWebJob(
   input: z.infer<typeof jobSchema>,
   jobs: WebJobManager,
   approvals: Map<string, Approval>,
-  playgrounds: Map<string, ManagedPlayground>
+  playgrounds: Map<string, ManagedPlayground>,
+  playgroundPortReservations: Set<number>
 ) {
   if (input.type === "clone") {
     return jobs.create("clone", `Clone/update ${input.slug}`, (context) => clonePluginJob(input, context));
   }
 
   if (input.type === "play") {
-    return jobs.create("play", `Start Playground for ${input.id}`, (context) => playPluginJob(input, playgrounds, context));
+    return jobs.create("play", `Start Playground for ${input.id}`, (context) =>
+      playPluginJob(input, playgrounds, playgroundPortReservations, context)
+    );
   }
 
   if (input.type === "check") {
     return jobs.create("check", "Plugin Check", (context) => pluginCheckJob(input.localId, context));
+  }
+
+  if (input.type === "ai-chat") {
+    return jobs.create("ai-chat", "AI Assistance", (context) => aiChatJob(input, context));
   }
 
   if (input.type === "dry-run-publish") {
@@ -407,68 +502,85 @@ async function clonePluginJob(
 async function playPluginJob(
   input: Extract<z.infer<typeof jobSchema>, { type: "play" }>,
   playgrounds: Map<string, ManagedPlayground>,
+  playgroundPortReservations: Set<number>,
   context: WebJobContext
 ) {
   const target = input.scope === "local" ? (await requireLocalPlugin(input.id)).path : input.id;
   const settings = await readWebSettings();
-  const port = await resolveFreePort("127.0.0.1", settings.playgroundPortStart, false, settings.playgroundPortEnd);
-  const plan = await createDemoLaunchPlan(target, { port: String(port), skipBrowser: true, reset: false });
-  if (!plan.url) {
-    throw new Error("Could not determine Playground URL.");
-  }
-
-  context.status(`Starting Playground for ${plan.name} on ${plan.url}`);
-  const child = spawn(plan.command, plan.args, { cwd: plan.cwd, stdio: ["ignore", "pipe", "pipe"] });
-  context.registerCancel(() => child.kill("SIGTERM"));
-  child.stdout.on("data", (chunk) => context.log(chunk.toString()));
-  child.stderr.on("data", (chunk) => context.log(chunk.toString()));
-
-  let removeStartupListeners = () => {};
-  const exitBeforeReady = new Promise<never>((_resolve, reject) => {
-    const onError = (error: Error) => reject(error);
-    const onExit = (code: number | null, signal: NodeJS.Signals | null) => {
-      reject(new Error(`Playground exited before it was ready (${signal ?? code ?? "unknown"}).`));
-    };
-    child.once("error", onError);
-    child.once("exit", onExit);
-    removeStartupListeners = () => {
-      child.off("error", onError);
-      child.off("exit", onExit);
-    };
-  });
+  const port = await reservePlaygroundPort(settings, playgrounds, playgroundPortReservations);
+  let child: ChildProcess | undefined;
+  let started = false;
 
   try {
-    await Promise.race([waitForPlaygroundReady(plan.url, context.signal), exitBeforeReady]);
-  } finally {
-    removeStartupListeners();
+    const plan = await createDemoLaunchPlan(target, { port: String(port), skipBrowser: true, reset: false });
+    if (!plan.url) {
+      throw new Error("Could not determine Playground URL.");
+    }
+
+    context.status(`Resetting Playground site at ${plan.siteDir}`);
+    await resetPlaygroundSite(plan.siteDir);
+    context.status(`Starting Playground for ${plan.name} on ${plan.url}`);
+    const spawned = spawn(plan.command, plan.args, { cwd: plan.cwd, stdio: ["ignore", "pipe", "pipe"] });
+    child = spawned;
+    context.registerCancel(() => spawned.kill("SIGTERM"));
+    spawned.stdout.on("data", (chunk) => context.log(chunk.toString()));
+    spawned.stderr.on("data", (chunk) => context.log(chunk.toString()));
+
+    let removeStartupListeners = () => {};
+    const exitBeforeReady = new Promise<never>((_resolve, reject) => {
+      const onError = (error: Error) => reject(error);
+      const onExit = (code: number | null, signal: NodeJS.Signals | null) => {
+        reject(new Error(`Playground exited before it was ready (${signal ?? code ?? "unknown"}).`));
+      };
+      spawned.once("error", onError);
+      spawned.once("exit", onExit);
+      removeStartupListeners = () => {
+        spawned.off("error", onError);
+        spawned.off("exit", onExit);
+      };
+    });
+
+    try {
+      await Promise.race([waitForPlaygroundReady(plan.url, context.signal), exitBeforeReady]);
+    } finally {
+      removeStartupListeners();
+    }
+
+    const instance: ManagedPlayground = {
+      id: createPlaygroundId(plan.slug, plan.url),
+      name: plan.name,
+      slug: plan.slug,
+      source: plan.source,
+      url: plan.url,
+      startedAt: new Date().toISOString(),
+      pid: spawned.pid,
+      child: spawned
+    };
+    playgrounds.set(instance.id, instance);
+    spawned.once("exit", () => {
+      playgrounds.delete(instance.id);
+      playgroundPortReservations.delete(port);
+    });
+    started = true;
+
+    context.status(`Playground is ready at ${plan.url}`);
+    return {
+      url: plan.url,
+      urls: playgroundUrls(plan.url),
+      credentials: {
+        username: "admin",
+        password: "password"
+      },
+      playground: publicPlayground(instance),
+      plan
+    };
+  } catch (error) {
+    if (!started) {
+      child?.kill("SIGTERM");
+      playgroundPortReservations.delete(port);
+    }
+    throw error;
   }
-
-  const instance: ManagedPlayground = {
-    id: createPlaygroundId(plan.slug, plan.url),
-    name: plan.name,
-    slug: plan.slug,
-    source: plan.source,
-    url: plan.url,
-    startedAt: new Date().toISOString(),
-    pid: child.pid,
-    child
-  };
-  playgrounds.set(instance.id, instance);
-  child.once("exit", () => {
-    playgrounds.delete(instance.id);
-  });
-
-  context.status(`Playground is ready at ${plan.url}`);
-  return {
-    url: plan.url,
-    urls: playgroundUrls(plan.url),
-    credentials: {
-      username: "admin",
-      password: "password"
-    },
-    playground: publicPlayground(instance),
-    plan
-  };
 }
 
 async function pluginCheckJob(localId: string, context: WebJobContext) {
@@ -483,6 +595,18 @@ async function pluginCheckJob(localId: string, context: WebJobContext) {
     source.rootDir
   );
   const summary = summarizeStudioPluginCheckFindings(findings);
+  const checkedAt = new Date().toISOString();
+  const persisted = await writeStudioPluginCheckState({
+    pluginId: local.id,
+    pluginPath: local.path,
+    slug: local.slug,
+    name: local.name,
+    skipped: result.skipped,
+    available: result.available,
+    findings,
+    summary,
+    checkedAt
+  });
   context.log(
     `Plugin Check finished: ${summary.error} errors, ${summary.warning} warnings, ${summary.info} info.`
   );
@@ -498,8 +622,82 @@ async function pluginCheckJob(localId: string, context: WebJobContext) {
     available: result.available,
     findings,
     summary,
+    checkedAt: persisted.checkedAt,
     rawOutput: result.rawOutput
   };
+}
+
+async function aiChatJob(
+  input: Extract<z.infer<typeof jobSchema>, { type: "ai-chat" }>,
+  context: WebJobContext
+) {
+  const local = await requireLocalPlugin(input.localId);
+  const source = resolvePluginProjectPath(local.path);
+  const settings = await readWebSettings();
+  const assistant = input.assistant ?? settings.aiAssistant;
+
+  if (assistant === "none") {
+    throw new Error("Choose an AI assistant in Settings before starting chat.");
+  }
+
+  const selectedAssistant = assistant as InstalledAiAssistantId;
+  const before = await snapshotStudioFileContents(source.rootDir);
+  const workspace = await createStudioAiPreviewWorkspace(source.rootDir);
+  const pluginCheck = await readStudioPluginCheckState(local.id);
+  const prompt = createAiAssistantPrompt({
+    pluginPath: workspace.path,
+    selectedFile: input.selectedFile,
+    userPrompt: input.prompt,
+    pluginCheck
+  });
+
+  context.status(`Starting ${selectedAssistant} in a review workspace.`);
+  context.status(
+    pluginCheck?.summary
+      ? `Included Plugin Check context: ${pluginCheck.summary.error} errors, ${pluginCheck.summary.warning} warnings.`
+      : "Included Plugin Check context: no saved check result."
+  );
+  try {
+    const run = await runAiAssistant(selectedAssistant, prompt, {
+      cwd: workspace.path,
+      signal: context.signal,
+      onEvent(event) {
+        if (event.type === "chunk" && event.text) {
+          context.log(event.text);
+        }
+      }
+    });
+    const after = await snapshotStudioFileContents(workspace.path);
+    const changedFiles = diffStudioFileContents(before, after);
+    if (changedFiles.length) {
+      context.log(`AI proposed ${changedFiles.length} patch${changedFiles.length === 1 ? "" : "es"}.`, {
+        proposedChanges: changedFiles.map((file) => ({
+          path: file.path,
+          status: file.status,
+          additions: file.additions,
+          deletions: file.deletions
+        }))
+      });
+    }
+
+    return {
+      assistant: run.provider,
+      command: describeAiAssistantRun(run),
+      exitCode: run.exitCode,
+      timedOut: run.timedOut,
+      aborted: run.aborted,
+      plugin: {
+        id: local.id,
+        name: local.name,
+        slug: local.slug,
+        path: source.rootDir
+      },
+      selectedFile: input.selectedFile,
+      changedFiles
+    };
+  } finally {
+    await rm(workspace.root, { recursive: true, force: true });
+  }
 }
 
 async function dryRunPublishJob(
@@ -671,6 +869,89 @@ async function writeStudioFile(pluginPath: string, relativePath: string, content
   };
 }
 
+async function applyStudioAiChange(pluginPath: string, change: StudioAiChangeInput) {
+  const normalizedPath = normalizeStudioRelativePath(change.path);
+  const filePath = resolveStudioWritableFilePath(pluginPath, normalizedPath);
+  const currentContent = await readStudioFileIfExists(filePath);
+
+  if (change.status === "created") {
+    if (currentContent !== undefined) {
+      throw new StudioAiChangeConflictError(`${normalizedPath} already exists. Reload the file before applying this patch.`);
+    }
+    if (change.afterContent === undefined) {
+      throw new Error("Created AI patches must include replacement content.");
+    }
+    await mkdir(path.dirname(filePath), { recursive: true });
+    await writeFile(filePath, change.afterContent, "utf8");
+    const fileStats = await stat(filePath);
+    return {
+      path: normalizedPath,
+      status: change.status,
+      size: fileStats.size,
+      appliedAt: new Date().toISOString()
+    };
+  }
+
+  if (currentContent === undefined) {
+    throw new StudioAiChangeConflictError(`${normalizedPath} no longer exists. Reload the file before applying this patch.`);
+  }
+
+  if (change.beforeContent === undefined || currentContent !== change.beforeContent) {
+    throw new StudioAiChangeConflictError(`${normalizedPath} changed since the AI patch was created. Reload before applying.`);
+  }
+
+  if (change.status === "deleted") {
+    await unlink(filePath);
+    return {
+      path: normalizedPath,
+      status: change.status,
+      appliedAt: new Date().toISOString()
+    };
+  }
+
+  if (change.afterContent === undefined) {
+    throw new Error("Modified AI patches must include replacement content.");
+  }
+
+  await writeFile(filePath, change.afterContent, "utf8");
+  const fileStats = await stat(filePath);
+  return {
+    path: normalizedPath,
+    status: change.status,
+    size: fileStats.size,
+    appliedAt: new Date().toISOString()
+  };
+}
+
+function resolveStudioWritableFilePath(pluginPath: string, relativePath: string): string {
+  const root = path.resolve(pluginPath);
+  if (!relativePath) {
+    throw new Error("Choose a file first.");
+  }
+
+  const filePath = path.resolve(root, relativePath);
+  if (filePath !== root && !filePath.startsWith(`${root}${path.sep}`)) {
+    throw new Error("File is outside the plugin directory.");
+  }
+
+  return filePath;
+}
+
+async function readStudioFileIfExists(filePath: string): Promise<string | undefined> {
+  try {
+    const fileStats = await stat(filePath);
+    if (!fileStats.isFile()) {
+      throw new StudioAiChangeConflictError("The patch target is not a file.");
+    }
+    return await readFile(filePath, "utf8");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      return undefined;
+    }
+    throw error;
+  }
+}
+
 async function resolveStudioFilePath(pluginPath: string, relativePath: string): Promise<string> {
   const root = path.resolve(pluginPath);
   const normalized = normalizeStudioRelativePath(relativePath);
@@ -722,6 +1003,57 @@ async function selectFolder(): Promise<string> {
     const result = await execa("kdialog", ["--getexistingdirectory", process.cwd(), "Choose a WordPress plugin folder"]);
     return result.stdout.trim();
   }
+}
+
+async function reservePlaygroundPort(
+  settings: WebSettings,
+  playgrounds: Map<string, ManagedPlayground>,
+  playgroundPortReservations: Set<number>
+): Promise<number> {
+  for (let port = settings.playgroundPortStart; port <= settings.playgroundPortEnd; port += 1) {
+    if (isPlaygroundPortReserved(port, playgrounds, playgroundPortReservations)) {
+      continue;
+    }
+
+    playgroundPortReservations.add(port);
+    if (await isPortAvailable("127.0.0.1", port)) {
+      return port;
+    }
+    playgroundPortReservations.delete(port);
+  }
+
+  throw new Error(
+    `No available Playground port found between ${settings.playgroundPortStart} and ${settings.playgroundPortEnd}.`
+  );
+}
+
+function isPlaygroundPortReserved(
+  port: number,
+  playgrounds: Map<string, ManagedPlayground>,
+  playgroundPortReservations: Set<number>
+): boolean {
+  return (
+    playgroundPortReservations.has(port) ||
+    Array.from(playgrounds.values()).some((playground) => playgroundPort(playground.url) === port)
+  );
+}
+
+function playgroundPort(url: string): number | undefined {
+  try {
+    const parsed = new URL(url);
+    if (parsed.port) {
+      return Number(parsed.port);
+    }
+    if (parsed.protocol === "http:") {
+      return 80;
+    }
+    if (parsed.protocol === "https:") {
+      return 443;
+    }
+  } catch {
+    return undefined;
+  }
+  return undefined;
 }
 
 async function waitForPlaygroundReady(url: string, signal: AbortSignal): Promise<void> {
@@ -904,6 +1236,226 @@ async function fetchHostedReadme(slug: string): Promise<string> {
 
 async function readTextFile(filePath: string): Promise<string> {
   return (await import("node:fs/promises")).readFile(filePath, "utf8");
+}
+
+class StudioAiChangeConflictError extends Error {}
+
+type StudioAiChangeInput = z.infer<typeof studioAiChangeSchema>;
+
+type StudioFileSnapshot = {
+  size: number;
+  mtimeMs: number;
+  content: string;
+};
+
+type StudioFileChange = {
+  path: string;
+  status: "created" | "modified" | "deleted";
+  beforeContent?: string;
+  afterContent?: string;
+  additions: number;
+  deletions: number;
+  hunks: StudioFileDiffHunk[];
+};
+
+type StudioFileDiffHunk = {
+  oldStart: number;
+  oldLines: number;
+  newStart: number;
+  newLines: number;
+  lines: StudioFileDiffLine[];
+};
+
+type StudioFileDiffLine = {
+  type: "context" | "add" | "delete";
+  content: string;
+};
+
+async function waitForChildProcess(
+  child: ChildProcess,
+  signal: AbortSignal
+): Promise<{ code: number | null; signal: NodeJS.Signals | null }> {
+  return new Promise((resolve, reject) => {
+    const onAbort = () => {
+      child.kill("SIGTERM");
+      reject(new Error("AI assistance was cancelled."));
+    };
+    const cleanup = () => {
+      signal.removeEventListener("abort", onAbort);
+      child.off("error", onError);
+      child.off("exit", onExit);
+    };
+    const onError = (error: Error) => {
+      cleanup();
+      reject(error);
+    };
+    const onExit = (code: number | null, exitSignal: NodeJS.Signals | null) => {
+      cleanup();
+      resolve({ code, signal: exitSignal });
+    };
+
+    if (signal.aborted) {
+      onAbort();
+      return;
+    }
+
+    signal.addEventListener("abort", onAbort, { once: true });
+    child.once("error", onError);
+    child.once("exit", onExit);
+  });
+}
+
+async function createStudioAiPreviewWorkspace(pluginPath: string): Promise<{ root: string; path: string }> {
+  const sourceRoot = path.resolve(pluginPath);
+  const workspaceRoot = await mkdtemp(path.join(tmpdir(), "pressship-studio-ai-"));
+  const workspacePath = path.join(workspaceRoot, path.basename(sourceRoot) || "plugin");
+  const ignoredDirectories = new Set([
+    ".git",
+    ".svn",
+    "node_modules",
+    "vendor",
+    "build",
+    "dist",
+    "playground",
+    ".wordpress-playground",
+    ".pressship-svn"
+  ]);
+
+  await cp(sourceRoot, workspacePath, {
+    recursive: true,
+    filter(sourcePath) {
+      const relativePath = path.relative(sourceRoot, sourcePath);
+      if (!relativePath) {
+        return true;
+      }
+      return !relativePath.split(path.sep).some((part) => ignoredDirectories.has(part));
+    }
+  });
+
+  return { root: workspaceRoot, path: workspacePath };
+}
+
+async function snapshotStudioFileContents(pluginPath: string): Promise<Map<string, StudioFileSnapshot>> {
+  const root = path.resolve(pluginPath);
+  const { files } = await listStudioFiles(root);
+  const entries = await Promise.all(
+    files.map(async (file) => {
+      const filePath = path.join(root, file.path);
+      const [fileStats, content] = await Promise.all([stat(filePath), readFile(filePath, "utf8")]);
+      return [
+        file.path,
+        {
+          size: fileStats.size,
+          mtimeMs: fileStats.mtimeMs,
+          content
+        }
+      ] as const;
+    })
+  );
+
+  return new Map(entries);
+}
+
+function diffStudioFileContents(
+  before: Map<string, StudioFileSnapshot>,
+  after: Map<string, StudioFileSnapshot>
+): StudioFileChange[] {
+  const changes: StudioFileChange[] = [];
+  for (const [filePath, afterValue] of after.entries()) {
+    const beforeValue = before.get(filePath);
+    if (!beforeValue) {
+      changes.push(createStudioFileChange(filePath, "created", undefined, afterValue.content));
+    } else if (beforeValue.content !== afterValue.content) {
+      changes.push(createStudioFileChange(filePath, "modified", beforeValue.content, afterValue.content));
+    }
+  }
+
+  for (const [filePath, beforeValue] of before.entries()) {
+    if (!after.has(filePath)) {
+      changes.push(createStudioFileChange(filePath, "deleted", beforeValue.content, undefined));
+    }
+  }
+
+  return changes.sort((a, b) => a.path.localeCompare(b.path));
+}
+
+function createStudioFileChange(
+  filePath: string,
+  status: StudioFileChange["status"],
+  beforeContent: string | undefined,
+  afterContent: string | undefined
+): StudioFileChange {
+  const hunks = createStudioFileDiffHunks(beforeContent ?? "", afterContent ?? "");
+  return {
+    path: filePath,
+    status,
+    beforeContent,
+    afterContent,
+    additions: countStudioFileDiffLines(hunks, "add"),
+    deletions: countStudioFileDiffLines(hunks, "delete"),
+    hunks
+  };
+}
+
+function countStudioFileDiffLines(hunks: StudioFileDiffHunk[], type: "add" | "delete"): number {
+  return hunks.reduce((count, hunk) => count + hunk.lines.filter((line) => line.type === type).length, 0);
+}
+
+function createStudioFileDiffHunks(beforeContent: string, afterContent: string): StudioFileDiffHunk[] {
+  if (beforeContent === afterContent) {
+    return [];
+  }
+
+  const beforeLines = splitStudioFileContentLines(beforeContent);
+  const afterLines = splitStudioFileContentLines(afterContent);
+  let prefix = 0;
+  while (
+    prefix < beforeLines.length &&
+    prefix < afterLines.length &&
+    beforeLines[prefix] === afterLines[prefix]
+  ) {
+    prefix += 1;
+  }
+
+  let beforeEnd = beforeLines.length - 1;
+  let afterEnd = afterLines.length - 1;
+  while (beforeEnd >= prefix && afterEnd >= prefix && beforeLines[beforeEnd] === afterLines[afterEnd]) {
+    beforeEnd -= 1;
+    afterEnd -= 1;
+  }
+
+  const contextBeforeStart = Math.max(0, prefix - 3);
+  const contextAfterBeforeEnd = Math.min(beforeLines.length - 1, beforeEnd + 3);
+  const contextAfterAfterEnd = Math.min(afterLines.length - 1, afterEnd + 3);
+  const leadingContext = beforeLines.slice(contextBeforeStart, prefix);
+  const removed = beforeLines.slice(prefix, beforeEnd + 1);
+  const added = afterLines.slice(prefix, afterEnd + 1);
+  const trailingBefore = beforeLines.slice(beforeEnd + 1, contextAfterBeforeEnd + 1);
+  const trailingAfter = afterLines.slice(afterEnd + 1, contextAfterAfterEnd + 1);
+  const trailingContext = trailingBefore.length === trailingAfter.length ? trailingBefore : [];
+  const lines: StudioFileDiffLine[] = [
+    ...leadingContext.map((content) => ({ type: "context" as const, content })),
+    ...removed.map((content) => ({ type: "delete" as const, content })),
+    ...added.map((content) => ({ type: "add" as const, content })),
+    ...trailingContext.map((content) => ({ type: "context" as const, content }))
+  ];
+
+  return [
+    {
+      oldStart: contextBeforeStart + 1,
+      oldLines: leadingContext.length + removed.length + trailingContext.length,
+      newStart: contextBeforeStart + 1,
+      newLines: leadingContext.length + added.length + trailingContext.length,
+      lines
+    }
+  ];
+}
+
+function splitStudioFileContentLines(content: string): string[] {
+  if (!content) {
+    return [];
+  }
+  return content.replace(/\r\n/g, "\n").split("\n");
 }
 
 function streamJobEvents(response: ServerResponse, jobs: WebJobManager, id: string): void {

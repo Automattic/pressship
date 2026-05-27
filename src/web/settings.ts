@@ -3,9 +3,11 @@ import { homedir } from "node:os";
 import path from "node:path";
 import { z } from "zod";
 import { ensureConfigDir, getLegacyWebSettingsPath, getWebSettingsPath, pathExists } from "../utils/paths.js";
+import { aiAssistantIds } from "./ai-assistance.js";
 
 export const webSettingsSchema = z.object({
   defaultCheckoutDir: z.string().min(1),
+  aiAssistant: z.enum(aiAssistantIds),
   defaultPublishAction: z.enum(["auto", "submit", "release"]),
   playgroundPortStart: z.number().int().min(1).max(65535),
   playgroundPortEnd: z.number().int().min(1).max(65535),
@@ -23,6 +25,7 @@ export function getDefaultCheckoutDir(): string {
 
 export const defaultWebSettings: WebSettings = {
   defaultCheckoutDir: getDefaultCheckoutDir(),
+  aiAssistant: "none",
   defaultPublishAction: "auto",
   playgroundPortStart: 9500,
   playgroundPortEnd: 9599,

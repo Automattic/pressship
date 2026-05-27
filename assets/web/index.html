@@ -37,9 +37,10 @@
             <span class="ab-command-label">Search or jump to…</span>
             <kbd class="ab-kbd"><span data-kbd-mod>⌘</span>K</kbd>
           </button>
-          <div class="ab-account" id="account-info">
+          <div class="ab-account is-loading" id="account-info" aria-busy="true">
             <span class="dashicons dashicons-admin-users" aria-hidden="true"></span>
-            <span class="ab-account-label">Loading account…</span>
+            <span class="ab-account-skeleton" aria-hidden="true"></span>
+            <span class="screen-reader-text">Loading account…</span>
           </div>
         </div>
       </header>
@@ -100,14 +101,181 @@
             <div id="notice-stack" aria-live="polite"></div>
 
             <section id="view-dashboard" class="wrap view is-active" data-view-name="dashboard">
-              <header class="ps-page-header">
-                <h1 class="wp-heading-inline">Dashboard</h1>
-              </header>
-              <hr class="wp-header-end" />
-              <div id="dashboard-content"></div>
-              <div class="postbox activity-box">
-                <h2><span class="dashicons dashicons-update"></span>Activity</h2>
-                <div id="activity-content" class="inside"></div>
+              <div id="dashboard-content" aria-busy="true">
+                <header class="ps-page-header ps-dashboard-titlebar ps-dashboard-skeleton" aria-hidden="true">
+                  <span class="ps-skeleton ps-skeleton-page-title"></span>
+                </header>
+                <hr class="wp-header-end" />
+
+                <section class="welcome-panel ps-welcome-panel ps-dashboard-skeleton" aria-label="Loading Pressship dashboard">
+                  <div class="welcome-panel-content">
+                    <div class="welcome-panel-header-wrap">
+                      <div class="welcome-panel-header">
+                        <span class="ps-skeleton ps-skeleton-kicker"></span>
+                        <span class="ps-skeleton ps-skeleton-title"></span>
+                        <span class="ps-skeleton ps-skeleton-copy"></span>
+                        <span class="ps-skeleton ps-skeleton-copy short"></span>
+                      </div>
+                    </div>
+                    <div class="welcome-panel-column-container" aria-hidden="true">
+                      <div class="welcome-panel-column">
+                        <span class="ps-skeleton ps-skeleton-welcome-icon"></span>
+                        <span class="ps-welcome-column-content">
+                          <span class="ps-skeleton ps-skeleton-line"></span>
+                          <span class="ps-skeleton ps-skeleton-copy"></span>
+                          <span class="ps-skeleton ps-skeleton-action"></span>
+                        </span>
+                      </div>
+                      <div class="welcome-panel-column">
+                        <span class="ps-skeleton ps-skeleton-welcome-icon"></span>
+                        <span class="ps-welcome-column-content">
+                          <span class="ps-skeleton ps-skeleton-line"></span>
+                          <span class="ps-skeleton ps-skeleton-copy"></span>
+                          <span class="ps-skeleton ps-skeleton-action"></span>
+                        </span>
+                      </div>
+                      <div class="welcome-panel-column">
+                        <span class="ps-skeleton ps-skeleton-welcome-icon"></span>
+                        <span class="ps-welcome-column-content">
+                          <span class="ps-skeleton ps-skeleton-line"></span>
+                          <span class="ps-skeleton ps-skeleton-copy"></span>
+                          <span class="ps-skeleton ps-skeleton-action"></span>
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                </section>
+
+                <div id="dashboard-widgets-wrap" class="ps-dashboard-widgets-wrap ps-dashboard-skeleton" aria-hidden="true">
+                  <div id="dashboard-widgets" class="metabox-holder columns-2">
+                    <div id="postbox-container-1" class="postbox-container">
+                      <div class="meta-box-sortables">
+                        <section class="postbox ps-dashboard-postbox">
+                          <div class="postbox-header">
+                            <h2 class="hndle">
+                              <span class="ps-skeleton ps-skeleton-line short"></span>
+                            </h2>
+                            <div class="ps-postbox-actions">
+                              <span class="ps-skeleton ps-skeleton-button"></span>
+                            </div>
+                          </div>
+                          <div class="inside">
+                            <p class="ps-widget-intro">
+                              <span class="ps-skeleton ps-skeleton-line"></span>
+                            </p>
+                            <ul class="ps-plugin-list">
+                              <li class="ps-plugin-row ps-skeleton-row">
+                                <span class="ps-skeleton ps-skeleton-icon"></span>
+                                <span class="ps-skeleton ps-skeleton-line"></span>
+                                <span class="ps-skeleton ps-skeleton-line short"></span>
+                                <span class="ps-skeleton ps-skeleton-button"></span>
+                              </li>
+                              <li class="ps-plugin-row ps-skeleton-row">
+                                <span class="ps-skeleton ps-skeleton-icon"></span>
+                                <span class="ps-skeleton ps-skeleton-line"></span>
+                                <span class="ps-skeleton ps-skeleton-line short"></span>
+                                <span class="ps-skeleton ps-skeleton-button"></span>
+                              </li>
+                              <li class="ps-plugin-row ps-skeleton-row">
+                                <span class="ps-skeleton ps-skeleton-icon"></span>
+                                <span class="ps-skeleton ps-skeleton-line"></span>
+                                <span class="ps-skeleton ps-skeleton-line short"></span>
+                                <span class="ps-skeleton ps-skeleton-button"></span>
+                              </li>
+                            </ul>
+                          </div>
+                        </section>
+                        <section class="postbox ps-dashboard-postbox">
+                          <div class="postbox-header">
+                            <h2 class="hndle">
+                              <span class="ps-skeleton ps-skeleton-line short"></span>
+                            </h2>
+                            <div class="ps-postbox-actions">
+                              <span class="ps-skeleton ps-skeleton-pill"></span>
+                            </div>
+                          </div>
+                          <div class="inside">
+                            <div class="ps-ai-chips">
+                              <span class="ps-skeleton ps-skeleton-chip"></span>
+                              <span class="ps-skeleton ps-skeleton-chip"></span>
+                              <span class="ps-skeleton ps-skeleton-chip"></span>
+                            </div>
+                            <p class="ps-widget-hint">
+                              <span class="ps-skeleton ps-skeleton-line"></span>
+                            </p>
+                          </div>
+                        </section>
+                      </div>
+                    </div>
+                    <div id="postbox-container-2" class="postbox-container">
+                      <div class="meta-box-sortables">
+                        <section class="postbox ps-dashboard-postbox">
+                          <div class="postbox-header">
+                            <h2 class="hndle">
+                              <span class="ps-skeleton ps-skeleton-line short"></span>
+                            </h2>
+                          </div>
+                          <div class="inside">
+                            <ul class="ps-glance-list">
+                              <li class="ps-glance-item">
+                                <span class="ps-glance-link">
+                                  <span class="ps-skeleton ps-skeleton-mini-icon"></span>
+                                  <span class="ps-skeleton ps-skeleton-count"></span>
+                                  <span class="ps-skeleton ps-skeleton-line"></span>
+                                </span>
+                              </li>
+                              <li class="ps-glance-item">
+                                <span class="ps-glance-link">
+                                  <span class="ps-skeleton ps-skeleton-mini-icon"></span>
+                                  <span class="ps-skeleton ps-skeleton-count"></span>
+                                  <span class="ps-skeleton ps-skeleton-line"></span>
+                                </span>
+                              </li>
+                              <li class="ps-glance-item">
+                                <span class="ps-glance-link">
+                                  <span class="ps-skeleton ps-skeleton-mini-icon"></span>
+                                  <span class="ps-skeleton ps-skeleton-count"></span>
+                                  <span class="ps-skeleton ps-skeleton-line"></span>
+                                </span>
+                              </li>
+                            </ul>
+                          </div>
+                        </section>
+                        <section class="postbox ps-dashboard-postbox">
+                          <div class="postbox-header">
+                            <h2 class="hndle">
+                              <span class="ps-skeleton ps-skeleton-line short"></span>
+                            </h2>
+                            <div class="ps-postbox-actions">
+                              <span class="ps-skeleton ps-skeleton-pill"></span>
+                            </div>
+                          </div>
+                          <div class="inside">
+                            <div class="ps-side-empty">
+                              <span class="ps-skeleton ps-skeleton-line"></span>
+                            </div>
+                          </div>
+                        </section>
+                        <section class="postbox ps-dashboard-postbox">
+                          <div class="postbox-header">
+                            <h2 class="hndle">
+                              <span class="ps-skeleton ps-skeleton-line short"></span>
+                            </h2>
+                          </div>
+                          <div class="inside ps-account-body">
+                            <div class="ps-account-row">
+                              <span class="ps-skeleton ps-skeleton-icon"></span>
+                              <span class="ps-account-text">
+                                <span class="ps-skeleton ps-skeleton-line"></span>
+                                <span class="ps-skeleton ps-skeleton-line short"></span>
+                              </span>
+                            </div>
+                          </div>
+                        </section>
+                      </div>
+                    </div>
+                  </div>
+                </div>
               </div>
             </section>
 
@@ -154,6 +322,10 @@
                 (<code>cdn.jsdelivr.net/npm/dashicons</code>).
               </p>
               <div id="settings-content"></div>
+              <div class="postbox activity-box" id="activity-box" hidden>
+                <h2><span class="dashicons dashicons-update"></span>Activity (debug)</h2>
+                <div id="activity-content" class="inside"></div>
+              </div>
             </section>
           </div>
         </div>

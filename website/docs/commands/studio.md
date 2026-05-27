@@ -21,6 +21,9 @@ Pressship Studio can:
 - open local plugins in a VS Code-style editor;
 - stream Playground output into a bottom terminal;
 - launch WordPress Playground into a right-side iframe preview;
+- detect Codex, Claude, Copilot, Gemini, and WP Studio AI assistance through Harness from Settings;
+- run a right-side Studio AI chat with the current local plugin path as the working directory;
+- refresh the editor and changed-file badges after AI-assisted edits;
 - detect version state and duplicate SVN tags;
 - bump patch, minor, or major versions;
 - run dry-run-first submit and release flows with a live job console.

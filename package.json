@@ -49,6 +49,7 @@
     "execa": "^9.6.1",
     "extract-zip": "^2.0.1",
     "fast-glob": "^3.3.3",
+    "harness-app-sdk": "^0.1.6",
     "ignore": "^7.0.5",
     "ora": "^9.4.0",
     "playwright": "^1.60.0",

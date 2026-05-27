@@ -270,12 +270,12 @@ export function createPlaygroundStartArgs(input: {
 
 export function resolveDemoPlaygroundOptions(
   options: z.infer<typeof demoOptionsSchema>,
-  requiredVersions: { wp?: unknown; php?: unknown }
+  _requiredVersions: { wp?: unknown; php?: unknown }
 ): z.infer<typeof demoOptionsSchema> {
   return {
     ...options,
-    wp: options.wp ?? normalizePlaygroundVersion(requiredVersions.wp),
-    php: options.php ?? normalizePlaygroundVersion(requiredVersions.php)
+    wp: normalizePlaygroundVersion(options.wp),
+    php: normalizePlaygroundVersion(options.php)
   };
 }
 
@@ -284,7 +284,7 @@ export function getPlaygroundSiteDir(projectPath: string): string {
   return path.join(homedir(), ".wordpress-playground", "sites", siteId);
 }
 
-async function resetPlaygroundSite(siteDir: string): Promise<void> {
+export async function resetPlaygroundSite(siteDir: string): Promise<void> {
   await rm(siteDir, { recursive: true, force: true });
 }
 

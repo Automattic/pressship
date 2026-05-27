@@ -118,22 +118,24 @@ describe("plugin demo launch args", () => {
 });
 
 describe("plugin demo version resolution", () => {
-  it("uses required plugin versions when demo versions are not provided", () => {
-    expect(
-      resolveDemoPlaygroundOptions(
-        {
-          reset: false,
-          skipBrowser: true
-        },
-        {
-          wp: "6.4",
-          php: "8.1"
-        }
-      )
-    ).toMatchObject({
-      wp: "6.4",
-      php: "8.1"
+  it("does not pin minimum plugin requirements as Playground runtime versions", () => {
+    const resolved = resolveDemoPlaygroundOptions(
+      {
+        reset: false,
+        skipBrowser: true
+      },
+      {
+        wp: "6.4",
+        php: "8.1"
+      }
+    );
+
+    expect(resolved).toMatchObject({
+      reset: false,
+      skipBrowser: true
     });
+    expect(resolved.wp).toBeUndefined();
+    expect(resolved.php).toBeUndefined();
   });
 
   it("keeps explicit demo versions as overrides", () => {

@@ -26,7 +26,7 @@ export async function resolveFreePort(
   );
 }
 
-async function isPortAvailable(host: string, port: number): Promise<boolean> {
+export async function isPortAvailable(host: string, port: number): Promise<boolean> {
   try {
     await probePort(host, port);
     return true;

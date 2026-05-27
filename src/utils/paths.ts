@@ -43,6 +43,10 @@ export function getWebSettingsPath(): string {
   return path.join(getConfigDir(), "studio-settings.json");
 }
 
+export function getWebPluginCheckStatePath(): string {
+  return path.join(getConfigDir(), "studio-plugin-check-state.json");
+}
+
 export function getLegacyWebLocalPluginsPath(): string {
   return path.join(getConfigDir(), "web-local-plugins.json");
 }

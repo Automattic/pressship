@@ -1,6 +1,6 @@
-import { execa } from "execa";
 import { z } from "zod";
 import { ui } from "../ui.js";
+import { openUrl } from "./open-url.js";
 import { startWebServer } from "./server.js";
 
 const studioOptionsSchema = z.object({
@@ -37,18 +37,4 @@ export async function studio(rawOptions: StudioOptions = {}): Promise<void> {
     process.once("SIGINT", close);
     process.once("SIGTERM", close);
   });
-}
-
-async function openUrl(url: string): Promise<void> {
-  if (process.platform === "darwin") {
-    await execa("open", [url]);
-    return;
-  }
-
-  if (process.platform === "win32") {
-    await execa("cmd", ["/c", "start", "", url]);
-    return;
-  }
-
-  await execa("xdg-open", [url]);
 }
