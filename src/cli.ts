@@ -46,6 +46,12 @@ program
   .option("--port <port>", "Port for the local Playground server")
   .option("--wp <version>", "WordPress version to use")
   .option("--php <version>", "PHP version to use")
+  .option("--database <mode>", "Playground database mode: auto, sqlite, or mysql")
+  .option("--mysql-host <host>", "MySQL host for Playground legacy database mode")
+  .option("--mysql-port <port>", "MySQL port for Playground legacy database mode")
+  .option("--mysql-user <user>", "MySQL user for Playground legacy database mode")
+  .option("--mysql-password <password>", "MySQL password for Playground legacy database mode")
+  .option("--mysql-database-prefix <prefix>", "MySQL database name prefix for Playground legacy database mode")
   .option("--reset", "Reset the persisted Playground site before starting")
   .option("--skip-browser", "Start the local server without opening a browser")
   .action((target: string | undefined, options: DemoOptions) => run(() => demo(target, options))());

@@ -11,28 +11,32 @@ import { defaultWebSettings, webSettingsSchema } from "../src/web/settings.js";
 
 describe("Studio AI assistance detection", () => {
   it("detects ready, unauthenticated, and installed-only Harness providers", async () => {
-    const result = await detectAiAssistance(fakeRunner({
-      "codex --version": { exitCode: 0, stdout: "codex 0.133.0", stderr: "" },
-      "codex login status": { exitCode: 1, stdout: "", stderr: "not logged in" },
-      "claude --version": { exitCode: 0, stdout: "2.1.85 (Claude Code)", stderr: "" },
-      "claude auth status": {
-        exitCode: 0,
-        stdout: JSON.stringify({ loggedIn: true }, null, 2),
-        stderr: ""
-      },
-      "copilot --version": { exitCode: 0, stdout: "copilot version 1.2.3", stderr: "" },
-      "gemini --version": { exitCode: 0, stdout: "0.2.0", stderr: "" },
-      "npx --version": { exitCode: 0, stdout: "11.0.0", stderr: "" }
-    }));
+    const result = await withoutCursorApiKey(() =>
+      detectAiAssistance(fakeRunner({
+        "codex --version": { exitCode: 0, stdout: "codex 0.133.0", stderr: "" },
+        "codex login status": { exitCode: 1, stdout: "", stderr: "not logged in" },
+        "claude --version": { exitCode: 0, stdout: "2.1.85 (Claude Code)", stderr: "" },
+        "claude auth status": {
+          exitCode: 0,
+          stdout: JSON.stringify({ loggedIn: true }, null, 2),
+          stderr: ""
+        },
+        "copilot --version": { exitCode: 0, stdout: "copilot version 1.2.3", stderr: "" },
+        "gemini --version": { exitCode: 0, stdout: "0.2.0", stderr: "" },
+        "npx --version": { exitCode: 0, stdout: "11.0.0", stderr: "" }
+      }))
+    );
 
+    expect(result.harnesses.map((provider) => provider.id)).toEqual([
+      "claude",
+      "codex",
+      "copilot",
+      "cursor",
+      "gemini",
+      "opencode",
+      "wp-studio"
+    ]);
     expect(result.providers).toMatchObject([
-      {
-        id: "codex",
-        installed: true,
-        authenticated: false,
-        status: "not_authenticated",
-        checkedCommand: "codex --version"
-      },
       {
         id: "claude",
         installed: true,
@@ -42,16 +46,37 @@ describe("Studio AI assistance detection", () => {
         checkedCommand: "claude --version"
       },
       {
+        id: "codex",
+        installed: true,
+        authenticated: false,
+        status: "not_authenticated",
+        checkedCommand: "codex --version"
+      },
+      {
         id: "copilot",
         installed: true,
         status: "installed",
         checkedCommand: "copilot --version"
       },
       {
+        id: "cursor",
+        installed: true,
+        authenticated: false,
+        status: "not_authenticated",
+        checkedCommand: "@cursor/sdk"
+      },
+      {
         id: "gemini",
         installed: true,
         status: "installed",
         checkedCommand: "gemini --version"
+      },
+      {
+        id: "opencode",
+        installed: false,
+        authenticated: false,
+        status: "not_installed",
+        checkedCommand: "@opencode-ai/sdk"
       },
       {
         id: "wp-studio",
@@ -63,11 +88,13 @@ describe("Studio AI assistance detection", () => {
   });
 
   it("marks missing assistant commands as not installed", async () => {
-    const result = await detectAiAssistance(missingRunner);
+    const result = await withoutCursorApiKey(() => detectAiAssistance(missingRunner));
 
     expect(result.providers.map((provider) => provider.status)).toEqual([
       "not_installed",
       "not_installed",
+      "not_installed",
+      "not_authenticated",
       "not_installed",
       "not_installed",
       "not_installed"
@@ -75,13 +102,31 @@ describe("Studio AI assistance detection", () => {
   });
 
   it("persists the selected AI assistant in Studio settings", () => {
-    expect(defaultWebSettings.aiAssistant).toBe("none");
+    expect(defaultWebSettings.aiAssistant).toBe("wp-studio");
+    expect(
+      webSettingsSchema.parse({
+        ...defaultWebSettings,
+        aiAssistant: "none"
+      }).aiAssistant
+    ).toBe("none");
     expect(
       webSettingsSchema.parse({
         ...defaultWebSettings,
         aiAssistant: "gemini"
       }).aiAssistant
     ).toBe("gemini");
+    expect(
+      webSettingsSchema.parse({
+        ...defaultWebSettings,
+        aiAssistant: "cursor"
+      }).aiAssistant
+    ).toBe("cursor");
+    expect(
+      webSettingsSchema.parse({
+        ...defaultWebSettings,
+        aiAssistant: "opencode"
+      }).aiAssistant
+    ).toBe("opencode");
     expect(
       webSettingsSchema.parse({
         ...defaultWebSettings,
@@ -194,6 +239,21 @@ function fakeRunner(responses: Record<string, Partial<CommandResult>>): AiComman
 const missingRunner: AiCommandRunner = async (command, args, options) => {
   return missingCommand(command, args, options.cwd);
 };
+
+async function withoutCursorApiKey<T>(callback: () => Promise<T>): Promise<T> {
+  const previous = process.env.CURSOR_API_KEY;
+  delete process.env.CURSOR_API_KEY;
+
+  try {
+    return await callback();
+  } finally {
+    if (previous === undefined) {
+      delete process.env.CURSOR_API_KEY;
+    } else {
+      process.env.CURSOR_API_KEY = previous;
+    }
+  }
+}
 
 function missingCommand(command: string, args: string[], cwd: string): CommandResult {
   return {

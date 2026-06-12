@@ -1,0 +1,120 @@
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
+  <title id="title">Harness SDK icon</title>
+  <desc id="desc">A graphite rounded-square icon with an H-shaped routing harness connected to six provider ports.</desc>
+  <defs>
+    <radialGradient id="backgroundGlow" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(336 216) rotate(48.7) scale(878)">
+      <stop stop-color="#34312b"/>
+      <stop offset="0.52" stop-color="#191817"/>
+      <stop offset="1" stop-color="#0d0c0b"/>
+    </radialGradient>
+    <linearGradient id="shellStroke" x1="170" y1="98" x2="854" y2="926" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#74706a"/>
+      <stop offset="0.45" stop-color="#2f2c28"/>
+      <stop offset="1" stop-color="#7a746a"/>
+    </linearGradient>
+    <linearGradient id="railStroke" x1="176" y1="262" x2="848" y2="762" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#9a9387"/>
+      <stop offset="0.48" stop-color="#57524b"/>
+      <stop offset="1" stop-color="#c3b59f"/>
+    </linearGradient>
+    <linearGradient id="barFill" x1="307" y1="220" x2="721" y2="804" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#f5efe4"/>
+      <stop offset="0.36" stop-color="#c9bca7"/>
+      <stop offset="0.72" stop-color="#8c8273"/>
+      <stop offset="1" stop-color="#efe1c8"/>
+    </linearGradient>
+    <linearGradient id="bridgeFill" x1="381" y1="435" x2="642" y2="586" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#fff8ea"/>
+      <stop offset="0.5" stop-color="#d9cab3"/>
+      <stop offset="1" stop-color="#9c917f"/>
+    </linearGradient>
+    <linearGradient id="innerShadow" x1="512" y1="148" x2="512" y2="876" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#000000" stop-opacity="0"/>
+      <stop offset="1" stop-color="#000000" stop-opacity="0.36"/>
+    </linearGradient>
+    <linearGradient id="cyanDot" x1="184" y1="269" x2="236" y2="321" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#b9f6ff"/>
+      <stop offset="1" stop-color="#41c7d7"/>
+    </linearGradient>
+    <linearGradient id="greenDot" x1="784" y1="269" x2="836" y2="321" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#d4ffc4"/>
+      <stop offset="1" stop-color="#79d66b"/>
+    </linearGradient>
+    <linearGradient id="amberDot" x1="184" y1="486" x2="236" y2="538" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#ffe4a6"/>
+      <stop offset="1" stop-color="#f0a93f"/>
+    </linearGradient>
+    <linearGradient id="roseDot" x1="784" y1="486" x2="836" y2="538" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#ffd4df"/>
+      <stop offset="1" stop-color="#e87c96"/>
+    </linearGradient>
+    <linearGradient id="violetDot" x1="184" y1="703" x2="236" y2="755" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#ddd6ff"/>
+      <stop offset="1" stop-color="#9b8cf2"/>
+    </linearGradient>
+    <linearGradient id="silverDot" x1="784" y1="703" x2="836" y2="755" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#f7f3ea"/>
+      <stop offset="1" stop-color="#a79d8d"/>
+    </linearGradient>
+    <filter id="softShadow" x="68" y="68" width="888" height="888" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="36" stdDeviation="44" flood-color="#000000" flood-opacity="0.48"/>
+      <feDropShadow dx="0" dy="4" stdDeviation="10" flood-color="#000000" flood-opacity="0.4"/>
+    </filter>
+    <filter id="markShadow" x="238" y="190" width="548" height="644" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="22" stdDeviation="24" flood-color="#000000" flood-opacity="0.5"/>
+      <feDropShadow dx="0" dy="-2" stdDeviation="2" flood-color="#ffffff" flood-opacity="0.15"/>
+    </filter>
+  </defs>
+
+  <g filter="url(#softShadow)">
+    <rect x="86" y="86" width="852" height="852" rx="196" fill="url(#backgroundGlow)"/>
+    <rect x="92" y="92" width="840" height="840" rx="190" stroke="url(#shellStroke)" stroke-width="12"/>
+    <rect x="130" y="130" width="764" height="764" rx="158" stroke="#f8eedc" stroke-opacity="0.07" stroke-width="2"/>
+    <path d="M190 186C326 121 504 111 656 153C764 183 846 250 884 346" stroke="#fff7e8" stroke-opacity="0.08" stroke-width="8" stroke-linecap="round"/>
+    <rect x="86" y="86" width="852" height="852" rx="196" fill="url(#innerShadow)"/>
+  </g>
+
+  <g stroke="url(#railStroke)" stroke-width="28" stroke-linecap="round" stroke-linejoin="round" opacity="0.9">
+    <path d="M213 296H287C328 296 348 329 370 360"/>
+    <path d="M213 512H344C370 512 391 512 416 512"/>
+    <path d="M213 728H287C328 728 348 695 370 664"/>
+    <path d="M811 296H737C696 296 676 329 654 360"/>
+    <path d="M811 512H680C654 512 633 512 608 512"/>
+    <path d="M811 728H737C696 728 676 695 654 664"/>
+  </g>
+
+  <g filter="url(#markShadow)">
+    <rect x="314" y="244" width="118" height="536" rx="59" fill="url(#barFill)"/>
+    <rect x="592" y="244" width="118" height="536" rx="59" fill="url(#barFill)"/>
+    <rect x="378" y="454" width="268" height="116" rx="58" fill="url(#bridgeFill)"/>
+    <rect x="344" y="286" width="30" height="452" rx="15" fill="#fff9ee" fill-opacity="0.22"/>
+    <rect x="622" y="286" width="30" height="452" rx="15" fill="#fff9ee" fill-opacity="0.18"/>
+    <rect x="414" y="480" width="186" height="30" rx="15" fill="#fff9ee" fill-opacity="0.2"/>
+  </g>
+
+  <g stroke="#171513" stroke-width="12">
+    <circle cx="213" cy="296" r="46" fill="#24211d"/>
+    <circle cx="213" cy="512" r="46" fill="#24211d"/>
+    <circle cx="213" cy="728" r="46" fill="#24211d"/>
+    <circle cx="811" cy="296" r="46" fill="#24211d"/>
+    <circle cx="811" cy="512" r="46" fill="#24211d"/>
+    <circle cx="811" cy="728" r="46" fill="#24211d"/>
+  </g>
+  <g>
+    <circle cx="213" cy="296" r="23" fill="url(#cyanDot)"/>
+    <circle cx="811" cy="296" r="23" fill="url(#greenDot)"/>
+    <circle cx="213" cy="512" r="23" fill="url(#amberDot)"/>
+    <circle cx="811" cy="512" r="23" fill="url(#roseDot)"/>
+    <circle cx="213" cy="728" r="23" fill="url(#violetDot)"/>
+    <circle cx="811" cy="728" r="23" fill="url(#silverDot)"/>
+  </g>
+
+  <g opacity="0.55">
+    <circle cx="213" cy="296" r="58" stroke="#c7bba9" stroke-opacity="0.24" stroke-width="2"/>
+    <circle cx="811" cy="296" r="58" stroke="#c7bba9" stroke-opacity="0.24" stroke-width="2"/>
+    <circle cx="213" cy="512" r="58" stroke="#c7bba9" stroke-opacity="0.2" stroke-width="2"/>
+    <circle cx="811" cy="512" r="58" stroke="#c7bba9" stroke-opacity="0.2" stroke-width="2"/>
+    <circle cx="213" cy="728" r="58" stroke="#c7bba9" stroke-opacity="0.2" stroke-width="2"/>
+    <circle cx="811" cy="728" r="58" stroke="#c7bba9" stroke-opacity="0.2" stroke-width="2"/>
+  </g>
+</svg>

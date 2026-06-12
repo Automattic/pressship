@@ -84,6 +84,14 @@
           <li class="wp-menu-section" id="playgrounds-section" hidden>Playgrounds</li>
           <li id="playground-menu-items" class="wp-playground-menu" hidden></li>
           <li class="wp-menu-section">Pressship</li>
+          <li class="menu-top" data-view="release">
+            <button class="menu-top" type="button" data-view-button="release">
+              <span class="wp-menu-image" aria-hidden="true">
+                <span class="dashicons dashicons-update"></span>
+              </span>
+              <span class="wp-menu-name">Release Management</span>
+            </button>
+          </li>
           <li class="menu-top" data-view="settings">
             <button class="menu-top" type="button" data-view-button="settings">
               <span class="wp-menu-image" aria-hidden="true">
@@ -288,8 +296,8 @@
                 </button>
               </header>
               <hr class="wp-header-end" />
-              <p class="description">Plugins visible to the saved WordPress.org account.</p>
-              <div id="remote-content" class="table-shell"></div>
+              <p class="description">Plugins visible to the saved WordPress.org account. Open one in your local library to start editing.</p>
+              <div id="remote-content" class="ps-card-shell"></div>
             </section>
 
             <section id="view-local" class="wrap view" data-view-name="local">
@@ -302,9 +310,24 @@
               </header>
               <hr class="wp-header-end" />
               <p class="description">
-                Plugin folders Pressship watches locally. Choose a folder or clone from WordPress.org.
+                Plugin folders Pressship watches locally. Open one in Studio to edit, or use Release Management to ship a new version.
               </p>
-              <div id="local-content" class="table-shell"></div>
+              <div id="local-content" class="ps-card-shell"></div>
+            </section>
+
+            <section id="view-release" class="wrap view" data-view-name="release">
+              <header class="ps-page-header">
+                <h1 class="wp-heading-inline">Release Management</h1>
+                <button class="page-title-action" type="button" data-action="refresh-release-board">
+                  <span class="dashicons dashicons-update-alt" aria-hidden="true"></span>
+                  Refresh
+                </button>
+              </header>
+              <hr class="wp-header-end" />
+              <p class="description">
+                Release status for every plugin in your local library. Manage release walks you through the publish funnel inside Studio.
+              </p>
+              <div id="release-content" class="ps-release-board-shell"></div>
             </section>
 
             <section id="view-studio" class="wrap view studio-view" data-view-name="studio">

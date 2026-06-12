@@ -1,17 +1,31 @@
+import { spawn } from "node:child_process";
 import {
   createHarnessClient,
+  type CommandResult,
   type CommandRunner,
+  type CommandRunnerOptions,
   type HarnessEvent,
   type HarnessRunResult,
+  type ProviderAdapter,
   type ProviderId,
   type ProviderStatus
 } from "harness-app-sdk";
 
-export const installedAiAssistantIds = ["codex", "claude", "copilot", "gemini", "wp-studio"] as const satisfies readonly ProviderId[];
-export const aiAssistantIds = ["none", ...installedAiAssistantIds] as const;
-export type AiAssistantId = (typeof aiAssistantIds)[number];
-export type InstalledAiAssistantId = (typeof installedAiAssistantIds)[number];
+export type InstalledAiAssistantId = ProviderId;
+export type AiAssistantId = "none" | InstalledAiAssistantId;
 export type AiAssistantStatus = "ready" | "installed" | "not_authenticated" | "not_installed" | "error";
+
+export type AiAssistantHarness = {
+  id: InstalledAiAssistantId;
+  label: string;
+  command: string;
+  checkedCommand: string;
+};
+
+let cachedAiAssistantHarnesses: AiAssistantHarness[] | undefined;
+
+export const installedAiAssistantIds = getAiAssistantHarnesses().map((provider) => provider.id);
+export const aiAssistantIds: readonly AiAssistantId[] = ["none", ...installedAiAssistantIds];
 
 export type AiAssistantProvider = {
   id: InstalledAiAssistantId;
@@ -26,6 +40,7 @@ export type AiAssistantProvider = {
 
 export type AiAssistanceDetection = {
   detectedAt: string;
+  harnesses: AiAssistantHarness[];
   providers: AiAssistantProvider[];
 };
 
@@ -69,30 +84,44 @@ export type RunAiAssistantOptions = {
   onEvent?: (event: HarnessEvent) => void;
 };
 
-const providerLabels: Record<InstalledAiAssistantId, string> = {
-  codex: "Codex",
-  claude: "Claude",
-  copilot: "Copilot",
-  gemini: "Gemini",
-  "wp-studio": "WP Studio"
-};
+const SECRET_PATTERNS = [
+  /\b(sk-[A-Za-z0-9_-]{16,})\b/g,
+  /\b([A-Za-z0-9_]*API_KEY[A-Za-z0-9_]*=)[^\s]+/gi,
+  /\b([A-Za-z0-9_]*TOKEN[A-Za-z0-9_]*=)[^\s]+/gi
+];
+
+export function getAiAssistantHarnesses(): AiAssistantHarness[] {
+  cachedAiAssistantHarnesses ??= harnessesFromProviders(
+    createHarnessClient({
+      runner: defaultAiCommandRunner,
+      env: createHarnessAiEnvironment(),
+      timeoutMs: 5_000
+    }).providers()
+  );
+
+  return cachedAiAssistantHarnesses.map((provider) => ({ ...provider }));
+}
 
 export async function detectAiAssistance(runner?: AiCommandRunner): Promise<AiAssistanceDetection> {
   const client = createHarnessClient({
-    runner,
+    runner: runner ?? defaultAiCommandRunner,
     env: createHarnessAiEnvironment(),
     timeoutMs: 5_000
   });
+  const harnesses = harnessesFromProviders(client.providers());
+  const harnessById = new Map(harnesses.map((provider) => [provider.id, provider]));
+  const harnessOrder = new Map(harnesses.map((provider, index) => [provider.id, index]));
   const statuses = await client.detect();
   const providers = statuses
     .filter((status): status is ProviderStatus & { id: InstalledAiAssistantId } =>
       isInstalledAiAssistantId(status.id)
     )
-    .map(providerStatusToAiProvider)
-    .sort((a, b) => installedAiAssistantIds.indexOf(a.id) - installedAiAssistantIds.indexOf(b.id));
+    .map((status) => providerStatusToAiProvider(status, harnessById.get(status.id)))
+    .sort((a, b) => (harnessOrder.get(a.id) ?? 0) - (harnessOrder.get(b.id) ?? 0));
 
   return {
     detectedAt: new Date().toISOString(),
+    harnesses,
     providers
   };
 }
@@ -104,7 +133,7 @@ export async function runAiAssistant(
 ): Promise<HarnessRunResult> {
   const client = createHarnessClient({
     cwd: options.cwd,
-    runner: options.runner,
+    runner: options.runner ?? defaultAiCommandRunner,
     env: createHarnessAiEnvironment(),
     timeoutMs: options.timeoutMs ?? 0
   });
@@ -137,7 +166,11 @@ export function describeAiAssistantRun(run: Pick<HarnessRunResult, "command" | "
 }
 
 export function isInstalledAiAssistantId(value: string): value is InstalledAiAssistantId {
-  return installedAiAssistantIds.includes(value as InstalledAiAssistantId);
+  return getAiAssistantHarnesses().some((provider) => provider.id === value);
+}
+
+export function isAiAssistantId(value: string): value is AiAssistantId {
+  return value === "none" || isInstalledAiAssistantId(value);
 }
 
 export function createAiAssistantPrompt(input: AiAssistantPromptInput): string {
@@ -164,17 +197,143 @@ function createHarnessAiEnvironment(): NodeJS.ProcessEnv {
   };
 }
 
-function providerStatusToAiProvider(status: ProviderStatus & { id: InstalledAiAssistantId }): AiAssistantProvider {
+async function defaultAiCommandRunner(
+  command: string,
+  args: string[],
+  options: CommandRunnerOptions
+): Promise<CommandResult> {
+  const startedAt = Date.now();
+
+  return await new Promise<CommandResult>((resolve) => {
+    let stdout = "";
+    let stderr = "";
+    let timedOut = false;
+    let aborted = false;
+    let settled = false;
+    let timer: NodeJS.Timeout | undefined;
+    let onAbort: (() => void) | undefined;
+
+    const child = spawn(command, args, {
+      cwd: options.cwd,
+      env: { ...process.env, ...options.env, NO_COLOR: "1" },
+      shell: false,
+      stdio: ["ignore", "pipe", "pipe"]
+    });
+
+    const finish = (result: Partial<CommandResult>) => {
+      if (settled) {
+        return;
+      }
+
+      settled = true;
+
+      if (timer) {
+        clearTimeout(timer);
+      }
+
+      if (onAbort) {
+        options.signal?.removeEventListener("abort", onAbort);
+      }
+
+      resolve({
+        command,
+        args,
+        cwd: options.cwd,
+        exitCode: result.exitCode ?? null,
+        stdout: redactAiCommandOutput(stdout),
+        stderr: redactAiCommandOutput(stderr),
+        durationMs: Date.now() - startedAt,
+        timedOut,
+        aborted,
+        error: result.error
+      });
+    };
+
+    onAbort = () => {
+      aborted = true;
+      child.kill("SIGTERM");
+    };
+
+    if (options.signal?.aborted) {
+      onAbort();
+    } else {
+      options.signal?.addEventListener("abort", onAbort, { once: true });
+    }
+
+    if (options.timeoutMs && options.timeoutMs > 0) {
+      timer = setTimeout(() => {
+        timedOut = true;
+        child.kill("SIGTERM");
+      }, options.timeoutMs);
+    }
+
+    child.stdout?.on("data", (chunk: Buffer) => {
+      const text = redactAiCommandOutput(chunk.toString());
+      stdout += text;
+      options.onStdout?.(text);
+    });
+
+    child.stderr?.on("data", (chunk: Buffer) => {
+      const text = redactAiCommandOutput(chunk.toString());
+      stderr += text;
+      options.onStderr?.(text);
+    });
+
+    child.once("error", (error: NodeJS.ErrnoException) => {
+      finish({ exitCode: null, error });
+    });
+
+    child.once("close", (exitCode) => {
+      finish({ exitCode });
+    });
+  });
+}
+
+function redactAiCommandOutput(value: string): string {
+  return SECRET_PATTERNS.reduce(
+    (current, pattern) =>
+      current.replace(pattern, (_match, prefix) =>
+        typeof prefix === "string" && prefix.endsWith("=") ? `${prefix}[redacted]` : "[redacted]"
+      ),
+    value
+  );
+}
+
+function harnessesFromProviders(providers: ProviderAdapter[]): AiAssistantHarness[] {
+  return providers.map(providerToAiAssistantHarness);
+}
+
+function providerToAiAssistantHarness(provider: ProviderAdapter): AiAssistantHarness {
+  return {
+    id: provider.id,
+    label: provider.name,
+    command: provider.command,
+    checkedCommand: checkedCommandForProvider(provider.command)
+  };
+}
+
+function providerStatusToAiProvider(
+  status: ProviderStatus & { id: InstalledAiAssistantId },
+  harness?: AiAssistantHarness
+): AiAssistantProvider {
   return {
     id: status.id,
-    label: providerLabels[status.id],
+    label: harness?.label ?? status.name,
     command: status.command,
     installed: status.available,
     authenticated: status.authenticated === null ? undefined : status.authenticated,
     status: providerStatus(status),
     detail: providerDetail(status),
-    checkedCommand: `${status.command} --version`
+    checkedCommand: checkedCommandForProvider(status.command)
   };
+}
+
+function checkedCommandForProvider(command: string): string {
+  if (command.startsWith("@")) {
+    return command;
+  }
+
+  return command === "npx" ? "npx --version" : `${command} --version`;
 }
 
 function providerStatus(status: ProviderStatus): AiAssistantStatus {

@@ -2,6 +2,7 @@ import { createHash, randomBytes } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { cp, mkdir, mkdtemp, readFile, rm, stat, unlink, writeFile } from "node:fs/promises";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
+import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { spawn, type ChildProcess } from "node:child_process";
@@ -13,7 +14,13 @@ import { hasSavedSession } from "../auth/session.js";
 import { getWordPressOrgAccount } from "../auth/whoami.js";
 import { createPluginPack, summarizePackResult, validatePluginPack } from "../package/pack.js";
 import { discoverPluginProject, resolvePluginProjectPath } from "../plugin/discover.js";
-import { createDemoLaunchPlan, resetPlaygroundSite } from "../plugin/demo.js";
+import {
+  assertDemoLaunchPlanSupported,
+  createDemoLaunchPlan,
+  prepareDemoRuntime,
+  publicDemoLaunchPlan,
+  resetPlaygroundSite
+} from "../plugin/demo.js";
 import { fetchHostedPluginInfo, getPluginInfo } from "../plugin/info.js";
 import { getPluginList } from "../plugin/list.js";
 import { bumpVersion, updatePluginHeaderVersion, updateReadmeStableTag, type VersionBump } from "../plugin/version.js";
@@ -28,14 +35,25 @@ import { ensureCacheDir, getConfigDir } from "../utils/paths.js";
 import { addLocalPluginPath, getLocalPlugin, listLocalPlugins, removeLocalPlugin } from "./registry.js";
 import { WebJobManager, type WebJobContext } from "./jobs.js";
 import { getVersionState } from "./version-state.js";
+import {
+  createReleaseTag,
+  deleteReleaseTag,
+  isValidExplicitVersion,
+  listReleaseTags,
+  ReleaseError,
+  ReleaseSwitchConflictError,
+  type ReleaseSwitchConflictResolution,
+  switchReleaseTag
+} from "./release.js";
 import { isPortAvailable, resolveFreePort } from "./ports.js";
 import { readWebSettings, webSettingsSchema, writeWebSettings, type WebSettings } from "./settings.js";
 import {
   createAiAssistantPrompt,
   detectAiAssistance,
   describeAiAssistantRun,
-  installedAiAssistantIds,
+  getAiAssistantHarnesses,
   runAiAssistant,
+  isInstalledAiAssistantId,
   type InstalledAiAssistantId
 } from "./ai-assistance.js";
 import {
@@ -50,9 +68,13 @@ import {
   writeStudioPluginCheckState
 } from "./plugin-check-state.js";
 
+const nodeRequire = createRequire(import.meta.url);
 const mutationMethods = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 const addLocalPluginSchema = z.object({ path: z.string().min(1) });
 const bumpVersionSchema = z.object({ bump: z.enum(["patch", "minor", "major"]) });
+const setVersionSchema = z.object({ version: z.string().min(1) });
+const createSvnTagSchema = z.object({ name: z.string().min(1) });
+const switchSvnTagSchema = z.object({ conflictResolution: z.enum(["override", "revert"]).optional() });
 const writeStudioFileSchema = z.object({
   path: z.string().min(1),
   content: z.string()
@@ -63,7 +85,10 @@ const studioAiChangeSchema = z.object({
   beforeContent: z.string().optional(),
   afterContent: z.string().optional()
 });
-const installedAiAssistantSchema = z.enum(installedAiAssistantIds);
+const installedAiAssistantSchema = z.custom<InstalledAiAssistantId>(
+  (value) => typeof value === "string" && isInstalledAiAssistantId(value),
+  { message: "Unknown AI assistant." }
+);
 const jobSchema = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("clone"),
@@ -73,7 +98,8 @@ const jobSchema = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("play"),
     scope: z.enum(["remote", "local"]),
-    id: z.string().min(1)
+    id: z.string().min(1),
+    wpVersion: z.string().min(1).max(20).optional()
   }),
   z.object({
     type: z.literal("check"),
@@ -95,6 +121,12 @@ const jobSchema = z.discriminatedUnion("type", [
     type: z.literal("confirm-publish"),
     approvalId: z.string().min(1),
     overview: z.string().optional()
+  }),
+  z.object({
+    type: z.literal("svn-switch"),
+    localId: z.string().min(1),
+    tag: z.string().min(1),
+    conflictResolution: z.enum(["override", "revert"]).optional()
   })
 ]);
 
@@ -221,6 +253,11 @@ async function handleRequest(
       return;
     }
 
+    if (url.pathname === "/vendor/marked.esm.js") {
+      await serveVendorAsset(response, nodeRequire.resolve("marked"));
+      return;
+    }
+
     await serveStatic(response, context.staticDir, url.pathname, context.token);
   } catch (error) {
     sendJson(response, 500, { error: { message: error instanceof Error ? error.message : String(error) } });
@@ -236,6 +273,16 @@ async function serveBrandAsset(response: ServerResponse, requestPath: string): P
   }
 
   response.writeHead(200, { "Content-Type": contentType(filePath) });
+  createReadStream(filePath)
+    .on("error", () => sendJson(response, 404, { error: { message: "Not found." } }))
+    .pipe(response);
+}
+
+async function serveVendorAsset(response: ServerResponse, filePath: string): Promise<void> {
+  response.writeHead(200, {
+    "Cache-Control": "no-store",
+    "Content-Type": contentType(filePath)
+  });
   createReadStream(filePath)
     .on("error", () => sendJson(response, 404, { error: { message: "Not found." } }))
     .pipe(response);
@@ -262,6 +309,7 @@ async function handleApi(
       defaultCheckoutDir: settings.defaultCheckoutDir,
       playgroundPortRange: [settings.playgroundPortStart, settings.playgroundPortEnd],
       settings,
+      aiHarnesses: getAiAssistantHarnesses(),
       jobs: context.jobs.list(),
       playgrounds: listPlaygrounds(context.playgrounds)
     });
@@ -395,10 +443,95 @@ async function handleApi(
   const bumpMatch = url.pathname.match(/^\/api\/plugins\/local\/([^/]+)\/bump-version$/);
   if (method === "POST" && bumpMatch) {
     const body = bumpVersionSchema.parse(await readJson(request));
-    const plugin = await requireLocalPlugin(decodeURIComponent(bumpMatch[1]));
+    const localId = decodeURIComponent(bumpMatch[1]);
+    const plugin = await requireLocalPlugin(localId);
     await bumpLocalPluginVersion(plugin.path, body.bump);
     await addLocalPluginPath(plugin.path, plugin.source);
-    sendJson(response, 200, await getVersionState(plugin.path));
+    await removeStudioPluginCheckState(localId);
+    sendJson(response, 200, { ...(await getVersionState(plugin.path)), checkState: null });
+    return;
+  }
+
+  const setVersionMatch = url.pathname.match(/^\/api\/plugins\/local\/([^/]+)\/version$/);
+  if (method === "PUT" && setVersionMatch) {
+    const body = setVersionSchema.parse(await readJson(request));
+    const localId = decodeURIComponent(setVersionMatch[1]);
+    const plugin = await requireLocalPlugin(localId);
+    const trimmed = body.version.trim();
+    if (!isValidExplicitVersion(trimmed)) {
+      sendJson(response, 400, {
+        error: {
+          message: "Version must look like 1, 1.2, 1.2.3, or 1.2.3-beta.",
+          code: "invalid_version"
+        }
+      });
+      return;
+    }
+
+    try {
+      await setLocalPluginVersion(plugin.path, trimmed);
+      await addLocalPluginPath(plugin.path, plugin.source);
+      await removeStudioPluginCheckState(localId);
+      sendJson(response, 200, { ...(await getVersionState(plugin.path)), checkState: null });
+    } catch (error) {
+      sendJson(response, 400, {
+        error: { message: error instanceof Error ? error.message : String(error), code: "version_update_failed" }
+      });
+    }
+    return;
+  }
+
+  const svnTagsListMatch = url.pathname.match(/^\/api\/plugins\/local\/([^/]+)\/svn-tags$/);
+  if (method === "GET" && svnTagsListMatch) {
+    const plugin = await requireLocalPlugin(decodeURIComponent(svnTagsListMatch[1]));
+    try {
+      sendJson(response, 200, await listReleaseTags(plugin.path));
+    } catch (error) {
+      sendReleaseError(response, error);
+    }
+    return;
+  }
+
+  if (method === "POST" && svnTagsListMatch) {
+    const plugin = await requireLocalPlugin(decodeURIComponent(svnTagsListMatch[1]));
+    const body = createSvnTagSchema.parse(await readJson(request));
+    try {
+      const tag = await createReleaseTag(plugin.path, body.name);
+      sendJson(response, 201, { tag, list: await listReleaseTags(plugin.path) });
+    } catch (error) {
+      sendReleaseError(response, error);
+    }
+    return;
+  }
+
+  const svnTagOpsMatch = url.pathname.match(/^\/api\/plugins\/local\/([^/]+)\/svn-tags\/([^/]+)$/);
+  if (method === "DELETE" && svnTagOpsMatch) {
+    const plugin = await requireLocalPlugin(decodeURIComponent(svnTagOpsMatch[1]));
+    const tagName = decodeURIComponent(svnTagOpsMatch[2]);
+    try {
+      await deleteReleaseTag(plugin.path, tagName);
+      sendJson(response, 200, { deleted: tagName, list: await listReleaseTags(plugin.path) });
+    } catch (error) {
+      sendReleaseError(response, error);
+    }
+    return;
+  }
+
+  const svnTagSwitchMatch = url.pathname.match(/^\/api\/plugins\/local\/([^/]+)\/svn-tags\/([^/]+)\/switch$/);
+  if (method === "POST" && svnTagSwitchMatch) {
+    const localId = decodeURIComponent(svnTagSwitchMatch[1]);
+    const tagName = decodeURIComponent(svnTagSwitchMatch[2]);
+    const body = switchSvnTagSchema.parse(await readJson(request));
+    await requireLocalPlugin(localId);
+    const job = context.jobs.create("svn-switch", `Switch to ${tagName}`, (jobContext) =>
+      switchReleaseTagJob(localId, tagName, body.conflictResolution, jobContext)
+    );
+    sendJson(response, 202, job);
+    return;
+  }
+
+  if (method === "GET" && url.pathname === "/api/release-board") {
+    sendJson(response, 200, await buildReleaseBoard());
     return;
   }
 
@@ -473,6 +606,12 @@ function createWebJob(
     );
   }
 
+  if (input.type === "svn-switch") {
+    return jobs.create("svn-switch", `Switch to ${input.tag}`, (context) =>
+      switchReleaseTagJob(input.localId, input.tag, input.conflictResolution, context)
+    );
+  }
+
   return jobs.create("confirm-publish", "Confirmed publish", (context) =>
     confirmPublishJob(input.approvalId, input.overview, approvals, context)
   );
@@ -512,14 +651,41 @@ async function playPluginJob(
   let started = false;
 
   try {
-    const plan = await createDemoLaunchPlan(target, { port: String(port), skipBrowser: true, reset: false });
+    const wpVersion = input.wpVersion === "latest" ? undefined : input.wpVersion;
+    const plan = await createDemoLaunchPlan(target, {
+      port: String(port),
+      skipBrowser: true,
+      reset: false,
+      wp: wpVersion,
+      database: settings.playgroundDatabaseMode,
+      mysqlHost: settings.playgroundMysqlHost,
+      mysqlPort: settings.playgroundMysqlPort,
+      mysqlUser: settings.playgroundMysqlUser,
+      mysqlPassword: settings.playgroundMysqlPassword,
+      mysqlDatabasePrefix: settings.playgroundMysqlDatabasePrefix
+    });
     if (!plan.url) {
       throw new Error("Could not determine Playground URL.");
     }
+    assertDemoLaunchPlanSupported(plan);
 
     context.status(`Resetting Playground site at ${plan.siteDir}`);
     await resetPlaygroundSite(plan.siteDir);
-    context.status(`Starting Playground for ${plan.name} on ${plan.url}`);
+    if (plan.database.mode === "mysql") {
+      context.status(
+        `Preparing MySQL database ${plan.database.database} at ${plan.database.host}:${plan.database.port}`
+      );
+      await prepareDemoRuntime(plan, { resetDatabase: true });
+      if (plan.database.server === "managed-docker") {
+        context.status(
+          `Using managed MariaDB container at ${plan.database.host}:${plan.database.port} for legacy Playground`
+        );
+      }
+    }
+    context.status(
+      `Starting Playground for ${plan.name} on ${plan.url} ` +
+        `(WordPress ${plan.wpVersion ?? "latest"}, PHP ${plan.phpVersion ?? "latest"})`
+    );
     const spawned = spawn(plan.command, plan.args, { cwd: plan.cwd, stdio: ["ignore", "pipe", "pipe"] });
     child = spawned;
     context.registerCancel(() => spawned.kill("SIGTERM"));
@@ -572,7 +738,7 @@ async function playPluginJob(
         password: "password"
       },
       playground: publicPlayground(instance),
-      plan
+      plan: publicDemoLaunchPlan(plan)
     };
   } catch (error) {
     if (!started) {
@@ -1146,6 +1312,113 @@ async function bumpLocalPluginVersion(pluginPath: string, bump: VersionBump): Pr
   return nextVersion;
 }
 
+async function setLocalPluginVersion(pluginPath: string, nextVersion: string): Promise<string> {
+  const project = await discoverPluginProject(pluginPath);
+  await updatePluginHeaderVersion(project.mainFile, nextVersion);
+  if (project.readmePath) {
+    await updateReadmeStableTag(project.readmePath, nextVersion);
+  }
+  return nextVersion;
+}
+
+async function switchReleaseTagJob(
+  localId: string,
+  tagName: string,
+  conflictResolution: ReleaseSwitchConflictResolution | undefined,
+  context: WebJobContext
+): Promise<{ ref: string; slug: string; workingCopy: string; checkState: null } | {
+  conflict: true;
+  code: string;
+  message: string;
+  output: string;
+  ref: string;
+  slug: string;
+  workingCopy: string;
+}> {
+  const plugin = await requireLocalPlugin(localId);
+  context.status(`Switching ${plugin.slug} to ${tagName}.`);
+  try {
+    const result = await switchReleaseTag(plugin.path, tagName, context, { conflictResolution });
+    await removeStudioPluginCheckState(localId);
+    return { ...result, slug: plugin.slug, checkState: null };
+  } catch (error) {
+    if (error instanceof ReleaseSwitchConflictError) {
+      context.status("SVN switch needs a conflict resolution choice.");
+      return {
+        conflict: true,
+        code: error.code,
+        message: error.message,
+        output: error.output,
+        ref: error.ref,
+        slug: plugin.slug,
+        workingCopy: error.workingCopy
+      };
+    }
+    throw error;
+  }
+}
+
+async function buildReleaseBoard() {
+  const plugins = await listLocalPlugins();
+  const entries = await Promise.all(
+    plugins.map(async (plugin) => {
+      if (!plugin.exists || plugin.error) {
+        return {
+          id: plugin.id,
+          name: plugin.name,
+          slug: plugin.slug,
+          path: plugin.path,
+          exists: plugin.exists,
+          error: plugin.error,
+          statuses: ["unknown_svn_state"],
+          releaseBlocked: false,
+          messages: plugin.error ? [plugin.error] : []
+        };
+      }
+      try {
+        const versionState = await getVersionState(plugin.path);
+        return {
+          id: plugin.id,
+          name: plugin.name,
+          slug: plugin.slug,
+          path: plugin.path,
+          exists: plugin.exists,
+          localVersion: versionState.localVersion,
+          readmeStableTag: versionState.readmeStableTag,
+          remoteVersion: versionState.remoteVersion,
+          latestSvnTag: versionState.latestSvnTag,
+          statuses: versionState.statuses,
+          releaseBlocked: versionState.releaseBlocked,
+          messages: versionState.messages
+        };
+      } catch (error) {
+        return {
+          id: plugin.id,
+          name: plugin.name,
+          slug: plugin.slug,
+          path: plugin.path,
+          exists: plugin.exists,
+          error: error instanceof Error ? error.message : String(error),
+          statuses: ["unknown_svn_state"],
+          releaseBlocked: false,
+          messages: [error instanceof Error ? error.message : String(error)]
+        };
+      }
+    })
+  );
+  return { plugins: entries };
+}
+
+function sendReleaseError(response: ServerResponse, error: unknown): void {
+  if (error instanceof ReleaseError) {
+    sendJson(response, error.status, { error: { message: error.message, code: error.code } });
+    return;
+  }
+  sendJson(response, 500, {
+    error: { message: error instanceof Error ? error.message : String(error) }
+  });
+}
+
 async function detectPublishRoute(
   inputDir: string,
   rootDir: string,
@@ -1487,13 +1760,19 @@ async function serveStatic(response: ServerResponse, staticDir: string, requestP
 
   if (path.basename(filePath) === "index.html") {
     const html = (await import("node:fs/promises")).readFile(filePath, "utf8");
-    response.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+    response.writeHead(200, {
+      "Cache-Control": "no-store",
+      "Content-Type": "text/html; charset=utf-8"
+    });
     response.end((await html).replace("__PRESSSHIP_TOKEN__", token));
     return;
   }
 
   const type = contentType(filePath);
-  response.writeHead(200, { "Content-Type": type });
+  response.writeHead(200, {
+    "Cache-Control": "no-store",
+    "Content-Type": type
+  });
   createReadStream(filePath)
     .on("error", () => sendJson(response, 404, { error: { message: "Not found." } }))
     .pipe(response);

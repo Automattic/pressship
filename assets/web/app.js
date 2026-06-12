@@ -2,6 +2,67 @@
 
 let token = document.querySelector('meta[name="pressship-token"]').content;
 
+let markdownParser = basicMarkdownToHtml;
+
+void import("/vendor/marked.esm.js")
+  .then(({ marked }) => {
+    marked.use({
+      gfm: true,
+      breaks: true
+    });
+    markdownParser = (markdown) => marked.parse(markdown, { async: false });
+  })
+  .catch(() => {
+    markdownParser = basicMarkdownToHtml;
+  });
+
+const MARKDOWN_ALLOWED_TAGS = new Set([
+  "a",
+  "blockquote",
+  "br",
+  "code",
+  "del",
+  "em",
+  "h1",
+  "h2",
+  "h3",
+  "h4",
+  "h5",
+  "h6",
+  "hr",
+  "li",
+  "ol",
+  "p",
+  "pre",
+  "strong",
+  "table",
+  "tbody",
+  "td",
+  "th",
+  "thead",
+  "tr",
+  "ul"
+]);
+
+const MARKDOWN_ALLOWED_ATTRIBUTES = {
+  a: new Set(["href", "title"]),
+  code: new Set(["class"])
+};
+
+const HARNESS_ICON = {
+  color: "/harness-sdk-icon.svg",
+  mono: "/harness-sdk-icon-mono.svg",
+  providers: {
+    claude: "https://cdn.jsdelivr.net/npm/simple-icons@latest/icons/claude.svg",
+    codex: "https://cdn.jsdelivr.net/npm/simple-icons@latest/icons/openai.svg",
+    copilot: "https://cdn.jsdelivr.net/npm/simple-icons@latest/icons/githubcopilot.svg",
+    cursor: "https://cdn.jsdelivr.net/npm/simple-icons@latest/icons/cursor.svg",
+    gemini: "https://cdn.jsdelivr.net/npm/simple-icons@latest/icons/googlegemini.svg",
+    opencode: "https://cdn.jsdelivr.net/npm/simple-icons@latest/icons/opencode.svg",
+    "wp-studio": "https://cdn.jsdelivr.net/npm/simple-icons@latest/icons/wordpress.svg"
+  }
+};
+
 /* ===================================================================
  * Studio layout — resizable panels
  * =================================================================== */
@@ -56,6 +117,60 @@ function clampStudioLayoutValue(key, value) {
     return value;
   }
   return Math.max(limits.min, Math.min(limits.max, value));
+}
+
+const STUDIO_SIDEBAR_TAB_KEY = "pressship.studio.sidebar.tab.v1";
+
+function loadStudioSidebarTab(pluginKey) {
+  if (!pluginKey) {
+    return "ai";
+  }
+  try {
+    const raw = typeof localStorage !== "undefined" ? localStorage.getItem(STUDIO_SIDEBAR_TAB_KEY) : null;
+    if (!raw) return "ai";
+    const parsed = JSON.parse(raw);
+    return parsed?.[pluginKey] === "release" ? "release" : "ai";
+  } catch {
+    return "ai";
+  }
+}
+
+function saveStudioSidebarTab(pluginKey, tab) {
+  if (!pluginKey) return;
+  try {
+    const raw = typeof localStorage !== "undefined" ? localStorage.getItem(STUDIO_SIDEBAR_TAB_KEY) : null;
+    const parsed = raw ? JSON.parse(raw) : {};
+    parsed[pluginKey] = tab === "release" ? "release" : "ai";
+    localStorage.setItem(STUDIO_SIDEBAR_TAB_KEY, JSON.stringify(parsed));
+  } catch {
+    // ignore
+  }
+}
+
+function createInitialStudioRelease() {
+  return {
+    tags: null,
+    tagsLoading: false,
+    tagsError: "",
+    tagsLoadedAt: null,
+    newTagDraft: "",
+    newTagError: "",
+    customVersionDraft: "",
+    customVersionError: "",
+    bumpInFlight: null,
+    bumpSuccess: null,
+    bumpError: "",
+    dryRun: null,
+    dryRunRunning: false,
+    dryRunJobId: null,
+    publishing: false,
+    publishJobId: null,
+    switchingTag: "",
+    switchingResolution: "",
+    switchJobId: null,
+    switchConflict: null,
+    switchError: ""
+  };
 }
 
 function applyStudioLayout(root) {
@@ -258,14 +373,24 @@ const state = {
     editor: null,
     editorKind: null,
     editorModels: [],
-    layout: loadStudioLayout()
+    layout: loadStudioLayout(),
+    sidebarTab: "ai",
+    playgroundVersionModal: null,
+    release: createInitialStudioRelease(),
+    pendingConfirms: new Map()
   },
   activeView: "dashboard",
+  releaseBoard: {
+    plugins: [],
+    loading: false,
+    error: ""
+  },
   settings: null,
   settingsDirty: false,
   aiAssistance: {
     loading: false,
     detectedAt: null,
+    harnesses: [],
     providers: []
   },
   command: {
@@ -282,6 +407,7 @@ const els = {
   dashboard: document.getElementById("dashboard-content"),
   remote: document.getElementById("remote-content"),
   local: document.getElementById("local-content"),
+  release: document.getElementById("release-content"),
   studio: document.getElementById("studio-content"),
   playgroundsSection: document.getElementById("playgrounds-section"),
   playgroundsMenu: document.getElementById("playground-menu-items"),
@@ -326,6 +452,27 @@ document.addEventListener("keydown", (event) => {
     event.preventDefault();
     void runStudioAi();
     return;
+  }
+
+  if (state.studio.playgroundVersionModal) {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      closeStudioPlaygroundVersionModal();
+      return;
+    }
+
+    if (event.key === "Tab") {
+      const choices = Array.from(document.querySelectorAll(".studio-playground-version-choice:not(:disabled)"));
+      if (choices.length) {
+        event.preventDefault();
+        const activeIndex = choices.indexOf(document.activeElement);
+        const nextIndex = event.shiftKey
+          ? (activeIndex <= 0 ? choices.length : activeIndex) - 1
+          : (activeIndex + 1) % choices.length;
+        choices[nextIndex]?.focus();
+      }
+      return;
+    }
   }
 
   const mod = isMac ? event.metaKey : event.ctrlKey;
@@ -390,6 +537,7 @@ async function boot() {
   }
   state.settings = state.bootstrap.settings ?? null;
   state.playgrounds = state.bootstrap.playgrounds ?? [];
+  state.aiAssistance.harnesses = state.bootstrap.aiHarnesses ?? [];
   document.body.dataset.activeView = state.activeView;
   renderAccount();
   for (const job of state.bootstrap.jobs ?? []) {
@@ -474,6 +622,10 @@ async function runAction(name, element) {
         await runStudioPlay();
         return;
 
+      case "studio-playground-version":
+        await runStudioPlayWithVersionChoice(element.dataset.choice);
+        return;
+
       case "studio-ai-send":
         await runStudioAi();
         return;
@@ -547,21 +699,55 @@ async function runAction(name, element) {
         return;
 
       case "bump-version":
-        await api(`/api/plugins/local/${encodeURIComponent(element.dataset.id)}/bump-version`, {
-          method: "POST",
-          body: { bump: element.dataset.bump }
-        });
-        notice(`Version bumped (${element.dataset.bump}).`, "success");
-        await loadLocal();
+        await bumpStudioReleaseVersion(element.dataset.id, element.dataset.bump);
+        return;
+
+      case "set-custom-version":
+        await setStudioCustomReleaseVersion(element.dataset.id);
         return;
 
       case "dry-run-publish":
-        await createJob({
-          type: "dry-run-publish",
-          localId: element.dataset.id,
-          action: element.dataset.publishAction
-        });
-        showView("dashboard");
+        await createReleaseDryRunJob(element.dataset.id, element.dataset.publishAction);
+        return;
+
+      case "open-in-library":
+        await openInLibrary(element.dataset.slug);
+        return;
+
+      case "manage-release":
+        await openStudio("local", element.dataset.id, { sidebarTab: "release" });
+        return;
+
+      case "refresh-release-board":
+        await loadReleaseBoard({ notify: true });
+        return;
+
+      case "studio-sidebar-tab":
+        setStudioSidebarTab(element.dataset.tab);
+        return;
+
+      case "studio-release-refresh":
+        await loadStudioReleaseTags({ force: true });
+        return;
+
+      case "studio-release-switch":
+        await switchStudioReleaseTag(element.dataset.tag, element.dataset.resolution);
+        return;
+
+      case "studio-release-create":
+        await createStudioReleaseTag();
+        return;
+
+      case "studio-release-delete":
+        await deleteStudioReleaseTag(element);
+        return;
+
+      case "studio-release-publish":
+        await confirmStudioRelease(element);
+        return;
+
+      case "toggle-kebab":
+        toggleKebabMenu(element.dataset.kebabId, element);
         return;
 
       case "confirm-publish": {
@@ -657,6 +843,9 @@ function renderRemote() {
   if (!state.studio.id) {
     renderStudio();
   }
+  if (!els.remote) {
+    return;
+  }
   if (!state.remote.length) {
     els.remote.innerHTML = emptyState({
       title: "No plugins found.",
@@ -666,66 +855,85 @@ function renderRemote() {
     return;
   }
 
+  const cards = state.remote.map(remoteCard).join("");
   els.remote.innerHTML = `
-    <div class="ps-list-table-wrap ps-list-table-wrap-remote">
-      <ul class="subsubsub ps-list-tabs">
-        <li>
-          <a class="current" href="#">${escapeHtml(state.remoteUsername || "account")}
-            <span class="count">(${state.remote.length})</span>
-          </a>
-        </li>
-      </ul>
-      <div class="tablenav top">
-        <div class="alignleft actions">
-          <span class="displaying-num">${escapeHtml(`${state.remote.length} WordPress.org plugin${state.remote.length === 1 ? "" : "s"}`)}</span>
-        </div>
-      </div>
-      <table class="wp-list-table widefat fixed striped plugins ps-list-table ps-remote-table">
-        <thead>
-          <tr>
-            <th class="column-primary">Plugin</th>
-            <th class="column-role">Role</th>
-            <th class="column-installs">Active installs</th>
-            <th class="column-tested">Tested up to</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${state.remote.map(remoteRow).join("")}
-        </tbody>
-      </table>
+    <div class="ps-card-toolbar" role="region" aria-label="WordPress.org plugin count">
+      <span class="ps-card-toolbar-count">
+        <span class="dashicons dashicons-admin-plugins" aria-hidden="true"></span>
+        ${escapeHtml(
+          `${state.remote.length} plugin${state.remote.length === 1 ? "" : "s"} for ${state.remoteUsername || "account"}`
+        )}
+      </span>
     </div>
+    <div class="ps-plugin-card-grid ps-plugin-card-grid-remote">${cards}</div>
   `;
 }
 
-function remoteRow(plugin) {
+function remoteCard(plugin) {
+  const inLibrary = state.local.find((entry) => entry.slug === plugin.slug);
+  const primaryLabel = inLibrary ? "Open in Studio" : "Open in Library";
+  const primaryAction = inLibrary
+    ? `data-action="studio" data-scope="local" data-id="${escapeAttr(inLibrary.id)}"`
+    : `data-action="open-in-library" data-slug="${escapeAttr(plugin.slug)}"`;
+  const roleBadges = remoteRoleChips(plugin.roles);
+  const initials = pluginInitials(plugin.name || plugin.slug);
+  const description = plugin.author ? `By ${plugin.author}` : "WordPress.org plugin";
+
   return `
-    <tr class="ps-list-table-row">
-      <td class="plugin-title column-primary" data-colname="Plugin">
-        <strong class="ps-table-plugin-name">
-          <button type="button" data-action="details" data-scope="remote" data-id="${escapeAttr(plugin.slug)}">${escapeHtml(plugin.name)}</button>
-        </strong>
-        <span class="plugin-slug">${escapeHtml(plugin.slug)}</span>
-        <div class="row-actions">
-          <span><button type="button" data-action="details" data-scope="remote" data-id="${escapeAttr(plugin.slug)}">Details</button></span>
-          <span class="sep">·</span>
-          <span><button type="button" data-action="clone" data-slug="${escapeAttr(plugin.slug)}">Clone / update</button></span>
-          <span class="sep">·</span>
-          <span><button type="button" data-action="studio" data-scope="remote" data-id="${escapeAttr(plugin.slug)}">Studio</button></span>
+    <article class="ps-plugin-card${inLibrary ? " is-in-library" : ""}" data-slug="${escapeAttr(plugin.slug)}">
+      <header class="ps-plugin-card-header">
+        <span class="ps-plugin-card-icon" aria-hidden="true">${escapeHtml(initials)}</span>
+        <div class="ps-plugin-card-title">
+          <h2>
+            <button type="button" class="ps-plugin-card-link" data-action="details" data-scope="remote" data-id="${escapeAttr(plugin.slug)}">${escapeHtml(plugin.name)}</button>
+          </h2>
+          <p class="ps-plugin-card-byline">${escapeHtml(description)}</p>
         </div>
-      </td>
-      <td class="column-role" data-colname="Role">${remoteRoleBadges(plugin.roles)}</td>
-      <td class="column-installs" data-colname="Active installs"><span class="ps-table-number">${escapeHtml(plugin.activeInstalls ?? "unknown")}</span></td>
-      <td class="column-tested" data-colname="Tested up to"><span class="ps-table-muted">${escapeHtml(plugin.testedWith ?? "unknown")}</span></td>
-    </tr>
+      </header>
+      <dl class="ps-plugin-card-meta">
+        <div>
+          <dt>Active installs</dt>
+          <dd>${escapeHtml(plugin.activeInstalls ?? "unknown")}</dd>
+        </div>
+        <div>
+          <dt>Tested up to</dt>
+          <dd>${escapeHtml(plugin.testedWith ?? "unknown")}</dd>
+        </div>
+        <div>
+          <dt>Role</dt>
+          <dd>${roleBadges}</dd>
+        </div>
+      </dl>
+      <footer class="ps-plugin-card-footer">
+        <button type="button" class="button button-primary ps-plugin-card-primary" ${primaryAction}>
+          <span class="dashicons ${inLibrary ? "dashicons-editor-code" : "dashicons-download"}" aria-hidden="true"></span>
+          ${escapeHtml(primaryLabel)}
+        </button>
+        <button type="button" class="ps-plugin-card-secondary" data-action="details" data-scope="remote" data-id="${escapeAttr(plugin.slug)}">
+          Details
+        </button>
+      </footer>
+    </article>
   `;
 }
 
-function remoteRoleBadges(roles = []) {
+function remoteRoleChips(roles = []) {
   const safeRoles = Array.isArray(roles) ? roles : [];
   if (!safeRoles.length) {
-    return `<span class="ps-table-muted">unknown</span>`;
+    return `<span class="ps-plugin-card-muted">unknown</span>`;
   }
-  return `<span class="ps-role-list">${safeRoles.map((role) => `<span class="ps-role-badge">${escapeHtml(role)}</span>`).join("")}</span>`;
+  return `<span class="ps-role-list">${safeRoles
+    .map((role) => `<span class="ps-role-badge">${escapeHtml(role)}</span>`)
+    .join("")}</span>`;
+}
+
+function pluginInitials(value) {
+  const text = String(value || "").trim();
+  if (!text) return "?";
+  const words = text.split(/\s+/);
+  const first = words[0]?.[0] ?? "";
+  const second = words.length > 1 ? words[words.length - 1][0] : words[0][1] ?? "";
+  return `${first}${second}`.toUpperCase();
 }
 
 /* ===================================================================
@@ -769,48 +977,34 @@ function renderLocal() {
   if (!state.studio.id) {
     renderStudio();
   }
+  if (!els.local) {
+    return;
+  }
   if (!state.local.length) {
     els.local.innerHTML = emptyState({
       title: "No local plugins yet.",
-      message: "Add a path above or clone one from My Plugins to get started.",
+      message: "Add a folder, or open one from WordPress.org to clone it into your library.",
       icon: "dashicons-download"
     });
     return;
   }
 
-  const defaultPublish = state.settings?.defaultPublishAction ?? "auto";
-  const defaultBump = state.settings?.defaultBumpLevel ?? "patch";
+  const cards = state.local
+    .map((plugin) => localCard(plugin, state.versionStates.get(plugin.id)))
+    .join("");
 
   els.local.innerHTML = `
-    <div class="ps-list-table-wrap ps-list-table-wrap-local">
-      <ul class="subsubsub ps-list-tabs">
-        <li>
-          <a class="current" href="#">All
-            <span class="count">(${state.local.length})</span>
-          </a>
-        </li>
-      </ul>
-      <div class="tablenav top">
-        <div class="alignleft actions">
-          <span class="displaying-num">${escapeHtml(`${state.local.length} local plugin${state.local.length === 1 ? "" : "s"}`)}</span>
-        </div>
-      </div>
-      <table class="wp-list-table widefat fixed striped plugins ps-list-table ps-local-table">
-        <thead>
-          <tr>
-            <th class="column-primary">Plugin</th>
-            <th class="column-version-state">Version state</th>
-            <th class="column-path">Path</th>
-            <th class="column-publish">Publish</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${state.local
-            .map((plugin) => localRow(plugin, state.versionStates.get(plugin.id), defaultPublish, defaultBump))
-            .join("")}
-        </tbody>
-      </table>
+    <div class="ps-card-toolbar" role="region" aria-label="Local plugin count">
+      <span class="ps-card-toolbar-count">
+        <span class="dashicons dashicons-download" aria-hidden="true"></span>
+        ${escapeHtml(`${state.local.length} local plugin${state.local.length === 1 ? "" : "s"}`)}
+      </span>
+      <button class="button button-secondary" type="button" data-action="choose-local-folder">
+        <span class="dashicons dashicons-open-folder" aria-hidden="true"></span>
+        Add folder
+      </button>
     </div>
+    <div class="ps-plugin-card-grid ps-plugin-card-grid-local">${cards}</div>
   `;
 }
 
@@ -884,8 +1078,12 @@ function playgroundUrlsFor(baseUrl) {
  * Studio
  * =================================================================== */
 
-async function openStudio(scope, id) {
+async function openStudio(scope, id, options = {}) {
   disposeStudioEditor();
+  const pluginKey = `${scope}:${id}`;
+  const sidebarTab = options.sidebarTab === "release" || options.sidebarTab === "ai"
+    ? options.sidebarTab
+    : loadStudioSidebarTab(pluginKey);
   state.studio = {
     scope,
     id,
@@ -922,15 +1120,22 @@ async function openStudio(scope, id) {
     editor: null,
     editorKind: null,
     editorModels: [],
-    layout: state.studio.layout ?? loadStudioLayout()
+    layout: state.studio.layout ?? loadStudioLayout(),
+    sidebarTab,
+    playgroundVersionModal: null,
+    release: createInitialStudioRelease(),
+    pendingConfirms: new Map()
   };
+  saveStudioSidebarTab(pluginKey, sidebarTab);
   showView("studio");
   renderStudio();
+  if (scope === "local" && sidebarTab === "release") {
+    void loadStudioReleaseTags();
+  }
 
   try {
     const detail = await api(`/api/plugins/${scope}/${encodeURIComponent(id)}`);
-    const plugin = scope === "local" ? detail.plugin : { id, slug: id, name: detail.info?.name ?? id };
-    state.studio.plugin = plugin;
+    applyStudioPluginDetail(scope, id, detail);
     state.studio.loading = false;
 
     if (scope === "local") {
@@ -941,7 +1146,7 @@ async function openStudio(scope, id) {
       state.studio.files = result.files ?? [];
       applyStudioCheckState(checkState.state);
       renderStudio();
-      const initialFile = chooseInitialStudioFile(state.studio.files, plugin.slug);
+      const initialFile = chooseInitialStudioFile(state.studio.files, state.studio.plugin?.slug);
       if (initialFile) {
         await selectStudioFile(initialFile.path);
       } else {
@@ -964,11 +1169,22 @@ async function openStudio(scope, id) {
   }
 }
 
-async function selectStudioFile(relativePath) {
+function applyStudioPluginDetail(scope, id, detail) {
+  state.studio.plugin = scope === "local"
+    ? { ...detail.plugin, info: detail.info }
+    : { id, slug: id, name: detail.info?.name ?? id, info: detail.info };
+
+  if (state.studio.playgroundVersionModal) {
+    const testedUpTo = studioTestedUpToVersion();
+    state.studio.playgroundVersionModal = testedUpTo ? { testedUpTo } : null;
+  }
+}
+
+async function selectStudioFile(relativePath, options = {}) {
   if (!state.studio.id || state.studio.scope !== "local" || !relativePath) {
     return;
   }
-  if (state.studio.dirty && !confirm("Discard unsaved changes in the current file?")) {
+  if (state.studio.dirty && !options.force && !confirm("Discard unsaved changes in the current file?")) {
     return;
   }
 
@@ -1036,6 +1252,19 @@ async function runStudioPlay() {
     return;
   }
 
+  const testedUpTo = studioTestedUpToVersion();
+  if (testedUpTo) {
+    openStudioPlaygroundVersionModal(testedUpTo);
+    return;
+  }
+
+  await startStudioPlaygroundWithVersion({
+    label: "latest",
+    terminalLabel: "latest WordPress"
+  });
+}
+
+async function startStudioPlaygroundWithVersion(wpChoice) {
   if (state.studio.dirty) {
     await saveStudioFile();
     if (state.studio.dirty) {
@@ -1048,13 +1277,77 @@ async function runStudioPlay() {
   state.studio.playgroundUrls = null;
   state.studio.activeTab = "home";
   state.studio.terminalOpen = true;
-  appendStudioTerminal("Starting WordPress Playground…", "status");
+  appendStudioTerminal(`Starting WordPress Playground with ${wpChoice.terminalLabel}…`, "status");
   renderStudio();
   updateStudioControls();
 
-  const job = await createJob({ type: "play", scope: state.studio.scope, id: state.studio.id });
+  const input = { type: "play", scope: state.studio.scope, id: state.studio.id };
+  if (wpChoice.wpVersion) {
+    input.wpVersion = wpChoice.wpVersion;
+  }
+  const job = await createJob(input);
   state.studio.jobId = job.id;
   updateStudioControls();
+}
+
+function openStudioPlaygroundVersionModal(testedUpTo) {
+  captureStudioEditorValue();
+  state.studio.playgroundVersionModal = { testedUpTo };
+  renderStudio();
+  remountStudioEditorIfNeeded();
+  setTimeout(() => document.querySelector(".studio-playground-version-choice.is-primary")?.focus(), 0);
+}
+
+function closeStudioPlaygroundVersionModal() {
+  if (!state.studio.playgroundVersionModal) {
+    return;
+  }
+  captureStudioEditorValue();
+  state.studio.playgroundVersionModal = null;
+  renderStudio();
+  remountStudioEditorIfNeeded();
+}
+
+async function runStudioPlayWithVersionChoice(choice) {
+  const testedUpTo = state.studio.playgroundVersionModal?.testedUpTo;
+  state.studio.playgroundVersionModal = null;
+  if (choice === "tested" && testedUpTo) {
+    const limitation = studioPlaygroundRuntimeLimitation(testedUpTo);
+    if (limitation) {
+      appendStudioTerminal(limitation, "error");
+      notice("This WordPress version cannot run in Playground.", "warning");
+      renderStudio();
+      remountStudioEditorIfNeeded();
+      return;
+    }
+    await startStudioPlaygroundWithVersion({
+      label: `Tested up to ${testedUpTo}`,
+      terminalLabel: `WordPress ${testedUpTo} (Tested up to)`,
+      wpVersion: testedUpTo
+    });
+    return;
+  }
+
+  await startStudioPlaygroundWithVersion({
+    label: "latest",
+    terminalLabel: "latest WordPress"
+  });
+}
+
+function studioTestedUpToVersion() {
+  const info = state.studio.plugin?.info ?? {};
+  return normalizeStudioPlaygroundVersion(
+    info.readme?.testedUpTo ?? info.tested ?? state.studio.plugin?.testedWith
+  );
+}
+
+function normalizeStudioPlaygroundVersion(value) {
+  const text = String(value ?? "").trim();
+  if (!text) {
+    return "";
+  }
+  const match = text.match(/\d+(?:\.\d+){0,2}/);
+  return match?.[0] ?? "";
 }
 
 async function runStudioCheck() {
@@ -1075,9 +1368,11 @@ async function runStudioCheck() {
   state.studio.checkSummary = null;
   state.studio.checkRanAt = null;
   state.studio.terminalOpen = true;
+  captureStudioEditorValue();
   appendStudioTerminal("Running WordPress.org Plugin Check…", "status");
   applyStudioCheckMarkers();
   renderStudio();
+  remountStudioEditorIfNeeded();
   updateStudioControls();
 
   const job = await createJob({ type: "check", localId: state.studio.id });
@@ -1420,11 +1715,67 @@ function renderStudio() {
           ${renderStudioAiSidebar()}
         </aside>
       </div>
+      ${renderStudioPlaygroundVersionModal()}
     </div>
   `;
   applyStudioLayout(els.studio.querySelector(".studio-root"));
   bindStudioResizers();
   updateStudioControls();
+}
+
+function renderStudioPlaygroundVersionModal() {
+  const modal = state.studio.playgroundVersionModal;
+  if (!modal) {
+    return "";
+  }
+
+  const testedUpTo = modal.testedUpTo;
+  const pluginName = state.studio.plugin?.name ?? "Plugin";
+  const testedLabel = isLegacyStudioPlaygroundVersion(testedUpTo) ? "Not supported by Playground" : "Tested up to";
+  return `
+    <div class="studio-playground-version-backdrop" role="presentation">
+      <section class="studio-playground-version-modal" role="dialog" aria-modal="true" aria-labelledby="studio-playground-version-title">
+        <header class="studio-playground-version-header">
+          <span class="dashicons dashicons-controls-play" aria-hidden="true"></span>
+          <div>
+            <strong id="studio-playground-version-title">Playground WordPress version</strong>
+            <span>${escapeHtml(pluginName)}</span>
+          </div>
+        </header>
+        <div class="studio-playground-version-options">
+          <button class="studio-playground-version-choice is-primary" type="button" data-action="studio-playground-version" data-choice="latest">
+            <span class="dashicons dashicons-update-alt" aria-hidden="true"></span>
+            <strong>Latest</strong>
+            <small>WordPress default</small>
+          </button>
+          <button class="studio-playground-version-choice" type="button" data-action="studio-playground-version" data-choice="tested">
+            <span class="dashicons dashicons-yes-alt" aria-hidden="true"></span>
+            <strong>${escapeHtml(testedUpTo)}</strong>
+            <small>${escapeHtml(testedLabel)}</small>
+          </button>
+        </div>
+      </section>
+    </div>
+  `;
+}
+
+function isLegacyStudioPlaygroundVersion(version) {
+  const match = String(version ?? "").trim().match(/^(\d+)(?:\.(\d+))?/);
+  if (!match) return false;
+  const major = Number(match[1]);
+  const minor = Number(match[2] ?? 0);
+  return major < 4 || (major === 4 && minor < 7);
+}
+
+function studioPlaygroundRuntimeLimitation(version) {
+  if (!isLegacyStudioPlaygroundVersion(version)) {
+    return "";
+  }
+
+  return (
+    `WordPress Playground cannot run WordPress ${version} with its matching legacy PHP runtime. ` +
+    "Use Latest or WordPress 4.7+ in Playground, or test this version in a local PHP/MySQL environment outside Playground."
+  );
 }
 
 async function openSelectedStudioPlugin() {
@@ -1665,6 +2016,31 @@ function renderStudioTreeNode(node, depth) {
 }
 
 function renderStudioAiSidebar() {
+  const tab = state.studio.sidebarTab === "release" ? "release" : "ai";
+  return `
+    ${renderStudioSidebarTabs(tab)}
+    <div class="studio-sidebar-pane" data-pane="${escapeAttr(tab)}">
+      ${tab === "release" ? renderStudioReleasePane() : renderStudioAiPane()}
+    </div>
+  `;
+}
+
+function renderStudioSidebarTabs(activeTab) {
+  return `
+    <div class="studio-sidebar-tabs ps-segmented" role="tablist" aria-label="Studio sidebar">
+      <button class="ps-segmented-option${activeTab === "ai" ? " is-active" : ""}" type="button" role="tab" aria-selected="${activeTab === "ai"}" data-action="studio-sidebar-tab" data-tab="ai">
+        ${renderHarnessIcon({ className: "studio-sidebar-tab-icon", mono: activeTab === "ai" })}
+        AI Helper
+      </button>
+      <button class="ps-segmented-option${activeTab === "release" ? " is-active" : ""}" type="button" role="tab" aria-selected="${activeTab === "release"}" data-action="studio-sidebar-tab" data-tab="release">
+        <span class="dashicons dashicons-update" aria-hidden="true"></span>
+        Release
+      </button>
+    </div>
+  `;
+}
+
+function renderStudioAiPane() {
   const assistant = selectedStudioAiAssistant();
   const pluginPath = state.studio.scope === "local" ? state.studio.plugin?.path : "";
   const canSend = canRunStudioAi();
@@ -1680,8 +2056,8 @@ function renderStudioAiSidebar() {
   return `
     <header class="studio-ai-header">
       <div class="studio-ai-agent">
-        <span class="studio-ai-avatar" aria-hidden="true">
-          <span class="dashicons dashicons-superhero-alt"></span>
+        <span class="studio-ai-avatar is-harness" aria-hidden="true">
+          ${renderHarnessIcon({ className: "studio-ai-avatar-icon", provider: assistant })}
         </span>
         <span class="studio-ai-agent-text">
           <strong>${escapeHtml(assistantLabel(assistant === "none" ? selectedStudioAiAssistant() : assistant))}</strong>
@@ -1824,8 +2200,8 @@ function renderStudioAiMessages() {
 
     return `
       <div class="studio-ai-empty">
-        <span class="studio-ai-avatar studio-ai-avatar-lg" aria-hidden="true">
-          <span class="dashicons dashicons-superhero-alt"></span>
+        <span class="studio-ai-avatar studio-ai-avatar-lg is-harness" aria-hidden="true">
+          ${renderHarnessIcon({ className: "studio-ai-avatar-icon", provider: assistant })}
         </span>
         <strong>${escapeHtml(canSend ? `How can ${assistantLabel(assistant)} help?` : assistantLabel(assistant))}</strong>
         <small>${escapeHtml(canSend ? "Ask anything about this plugin, or pick a starter prompt." : "Open a local plugin and select an assistant to start chatting.")}</small>
@@ -1855,14 +2231,14 @@ function renderStudioAiMessages() {
                   <span>${escapeHtml(aiMessageRoleLabel(message))}</span>
                   <time>${escapeHtml(formatTime(message.createdAt))}</time>
                 </header>
-                <p>${escapeHtml(message.text)}</p>
+                <div class="studio-ai-markdown">${renderStudioAiMarkdown(message.text)}</div>
               </div>
             </article>
           `
             : `
             <article class="studio-ai-message studio-ai-message-assistant studio-ai-message-${escapeAttr(message.tone ?? "muted")}">
-              <span class="studio-ai-avatar" aria-hidden="true">
-                <span class="dashicons dashicons-format-chat"></span>
+              <span class="studio-ai-avatar is-harness" aria-hidden="true">
+                ${renderHarnessIcon({ className: "studio-ai-avatar-icon", provider: message.assistant ?? state.studio.aiActiveAssistant ?? selectedStudioAiAssistant() })}
               </span>
               <div class="studio-ai-reply">
                 <header>
@@ -1884,8 +2260,8 @@ function renderStudioAiTypingIndicator() {
 
   return `
     <article class="studio-ai-message studio-ai-message-assistant studio-ai-typing" aria-live="polite">
-      <span class="studio-ai-avatar" aria-hidden="true">
-        <span class="dashicons dashicons-format-chat"></span>
+      <span class="studio-ai-avatar is-harness" aria-hidden="true">
+        ${renderHarnessIcon({ className: "studio-ai-avatar-icon", provider: state.studio.aiActiveAssistant || selectedStudioAiAssistant() })}
       </span>
       <div class="studio-ai-reply studio-ai-typing-indicator" aria-label="${escapeAttr(assistantLabel(state.studio.aiActiveAssistant || selectedStudioAiAssistant()))} is writing">
         <span></span>
@@ -2252,12 +2628,19 @@ function selectedStudioAiAssistant() {
 }
 
 function assistantLabel(id) {
+  const provider = aiAssistanceProviders().find((item) => item.id === id);
+  if (provider) {
+    return provider.label;
+  }
+
   const labels = {
     none: "AI",
-    codex: "Codex",
-    claude: "Claude",
-    copilot: "Copilot",
-    gemini: "Gemini",
+    claude: "Claude Code",
+    codex: "Codex CLI",
+    copilot: "GitHub Copilot CLI",
+    cursor: "Cursor",
+    gemini: "Gemini CLI",
+    opencode: "OpenCode",
     "wp-studio": "WP Studio"
   };
   return labels[id] ?? capitalize(String(id));
@@ -2461,6 +2844,16 @@ function handleStudioJobEvent(id, payload) {
   const isPlayJob = state.studio.jobId === id;
   const isCheckJob = state.studio.checkJobId === id;
   const isAiJob = state.studio.aiJobId === id;
+  const isSwitchJob = state.studio.release?.switchJobId === id;
+  const isDryRunJob = state.studio.release?.dryRunJobId === id;
+  if (isSwitchJob) {
+    handleStudioSwitchJobEvent(id, payload);
+    return;
+  }
+  if (isDryRunJob) {
+    handleStudioDryRunJobEvent(id, payload);
+    return;
+  }
   if (!isPlayJob && !isCheckJob && !isAiJob) {
     return;
   }
@@ -2545,6 +2938,14 @@ function handleStudioPlaygroundResult(id, result) {
   state.studio.activeTab = "home";
   state.studio.running = false;
   appendStudioTerminal(`Playground ready at ${state.studio.playgroundUrls.home}.`, "success");
+  if (result.plan?.database?.mode === "mysql") {
+    const database = result.plan.database;
+    const databaseLabel = database.server === "managed-docker" ? "Managed MariaDB" : "MySQL";
+    appendStudioTerminal(
+      `Database: ${databaseLabel} ${database.user}@${database.host}:${database.port}/${database.database}.`,
+      "status"
+    );
+  }
   appendStudioTerminal("WP Admin credentials: admin / password.", "status");
   renderStudio();
   updateStudioControls();
@@ -2841,7 +3242,11 @@ function applyStudioAiPatchMarkers() {
 }
 
 function revealStudioCheckNote(line, column = 1) {
-  if (!line || state.studio.activeTab !== "editor") {
+  if (!line) {
+    return;
+  }
+  if (state.studio.activeTab !== "editor") {
+    captureStudioEditorValue();
     state.studio.activeTab = "editor";
     renderStudio();
     remountStudioEditorIfNeeded();
@@ -3463,68 +3868,80 @@ function renderPlaygroundsMenu() {
   `;
 }
 
-function localRow(plugin, versionState, defaultPublish, defaultBump) {
+function localCard(plugin, versionState) {
   const stateBadges = versionState?.statuses
-    ? versionState.statuses.map((status) => badge(status, statusBadgeTone(status))).join(" ")
+    ? versionState.statuses.map((status) => badge(status, statusBadgeTone(status))).join("")
     : badge("unknown", "warning");
-  const versionText = versionState?.localVersion
-    ? `${escapeHtml(versionState.localVersion)} <span class="plugin-slug">/ stable ${escapeHtml(
-        versionState.readmeStableTag ?? "missing"
-      )}</span>`
-    : escapeHtml(versionState?.error ?? "unknown");
-
-  const bumpButton = (level) =>
-    `<button class="button button-small ps-inline-button${level === defaultBump ? " button-primary" : ""}" type="button" data-action="bump-version" data-id="${escapeAttr(
-      plugin.id
-    )}" data-bump="${level}">${capitalize(level)}</button>`;
-
-  const publishButton = (action, label, isPrimary) =>
-    `<button class="button button-small ps-inline-button${isPrimary ? " button-primary" : ""}" type="button" data-action="dry-run-publish" data-id="${escapeAttr(
-      plugin.id
-    )}" data-publish-action="${action}">${escapeHtml(label)}</button>`;
+  const localVersion = versionState?.localVersion ?? plugin.info?.version ?? "—";
+  const stableTag = versionState?.readmeStableTag ?? "—";
+  const remoteVersion = versionState?.remoteVersion ?? "—";
+  const initials = pluginInitials(plugin.name || plugin.slug);
+  const missing = plugin.exists === false;
+  const path = plugin.path ?? "";
+  const kebabId = `ps-kebab-${plugin.id}`;
 
   return `
-    <tr class="ps-list-table-row${plugin.exists === false ? " is-missing" : ""}">
-      <td class="plugin-title column-primary" data-colname="Plugin">
-        <strong class="ps-table-plugin-name">
-          <button type="button" data-action="studio" data-scope="local" data-id="${escapeAttr(plugin.id)}">${escapeHtml(plugin.name)}</button>
-        </strong>
-        <span class="plugin-slug">${escapeHtml(plugin.slug)}</span>
-        <div class="row-actions">
-          <span><button type="button" data-action="details" data-scope="local" data-id="${escapeAttr(plugin.id)}">Details</button></span>
-          <span class="sep">·</span>
-          <span><button type="button" data-action="version-state" data-id="${escapeAttr(plugin.id)}">Versions</button></span>
-          <span class="sep">·</span>
-          <span><button type="button" data-action="studio" data-scope="local" data-id="${escapeAttr(plugin.id)}">Studio</button></span>
-          <span class="sep">·</span>
-          <span class="delete"><button type="button" data-action="remove-local" data-id="${escapeAttr(plugin.id)}">Remove</button></span>
+    <article class="ps-plugin-card ps-plugin-card-local${missing ? " is-missing" : ""}" data-id="${escapeAttr(plugin.id)}">
+      <header class="ps-plugin-card-header">
+        <span class="ps-plugin-card-icon" aria-hidden="true">${escapeHtml(initials)}</span>
+        <div class="ps-plugin-card-title">
+          <h2>
+            <button type="button" class="ps-plugin-card-link" data-action="studio" data-scope="local" data-id="${escapeAttr(plugin.id)}">${escapeHtml(plugin.name)}</button>
+          </h2>
+          <p class="ps-plugin-card-byline">${escapeHtml(plugin.slug)}</p>
         </div>
-      </td>
-      <td class="column-version-state" data-colname="Version state">
-        <div class="ps-status-badges">${stateBadges}</div>
-        <div class="version-line">${versionText}</div>
-        <div class="actions ps-bump-actions">
-          ${bumpButton("patch")}
-          ${bumpButton("minor")}
-          ${bumpButton("major")}
+        <div class="ps-kebab-wrap">
+          <button type="button" class="ps-kebab-button" data-action="toggle-kebab" data-kebab-id="${escapeAttr(kebabId)}" aria-haspopup="true" aria-expanded="false" aria-label="More actions" title="More actions">
+            <span class="dashicons dashicons-ellipsis" aria-hidden="true"></span>
+          </button>
+          <div class="ps-kebab-menu" id="${escapeAttr(kebabId)}" role="menu" hidden>
+            <button type="button" role="menuitem" data-action="details" data-scope="local" data-id="${escapeAttr(plugin.id)}">
+              <span class="dashicons dashicons-info" aria-hidden="true"></span>
+              Details
+            </button>
+            <button type="button" role="menuitem" data-action="manage-release" data-id="${escapeAttr(plugin.id)}">
+              <span class="dashicons dashicons-update" aria-hidden="true"></span>
+              Manage release
+            </button>
+            <button type="button" role="menuitem" data-action="version-state" data-id="${escapeAttr(plugin.id)}">
+              <span class="dashicons dashicons-tag" aria-hidden="true"></span>
+              Version state
+            </button>
+            <button type="button" role="menuitem" class="ps-kebab-menu-danger" data-action="remove-local" data-id="${escapeAttr(plugin.id)}">
+              <span class="dashicons dashicons-trash" aria-hidden="true"></span>
+              Remove from library
+            </button>
+          </div>
         </div>
-      </td>
-      <td class="column-path" data-colname="Path"><code class="ps-path-code" title="${escapeAttr(plugin.path)}">${escapeHtml(plugin.path)}</code></td>
-      <td class="column-publish" data-colname="Publish">
-        <div class="actions ps-publish-actions">
-          ${publishButton(defaultPublish, defaultPublishLabel(defaultPublish), true)}
-          ${defaultPublish !== "submit" ? publishButton("submit", "Submit", false) : ""}
-          ${defaultPublish !== "release" ? publishButton("release", "Release", false) : ""}
+      </header>
+      <div class="ps-plugin-card-status">${stateBadges}</div>
+      <dl class="ps-plugin-card-meta">
+        <div>
+          <dt>Header</dt>
+          <dd>${escapeHtml(String(localVersion))}</dd>
         </div>
-      </td>
-    </tr>
+        <div>
+          <dt>Stable tag</dt>
+          <dd>${escapeHtml(String(stableTag))}</dd>
+        </div>
+        <div>
+          <dt>WordPress.org</dt>
+          <dd>${escapeHtml(String(remoteVersion))}</dd>
+        </div>
+      </dl>
+      <code class="ps-plugin-card-path" title="${escapeAttr(path)}">${escapeHtml(path)}</code>
+      <footer class="ps-plugin-card-footer">
+        <button type="button" class="button button-primary ps-plugin-card-primary" data-action="studio" data-scope="local" data-id="${escapeAttr(plugin.id)}" ${missing ? "disabled" : ""}>
+          <span class="dashicons dashicons-editor-code" aria-hidden="true"></span>
+          Open in Studio
+        </button>
+        <button type="button" class="ps-plugin-card-secondary" data-action="manage-release" data-id="${escapeAttr(plugin.id)}" ${missing ? "disabled" : ""}>
+          <span class="dashicons dashicons-update" aria-hidden="true"></span>
+          Manage release
+        </button>
+      </footer>
+    </article>
   `;
-}
-
-function defaultPublishLabel(action) {
-  if (action === "submit") return "Dry-run submit";
-  if (action === "release") return "Dry-run release";
-  return "Auto dry-run";
 }
 
 /* ===================================================================
@@ -3702,6 +4119,15 @@ function handleJobResult(id, result) {
     return;
   }
 
+  if (state.studio.release.dryRunJobId === id && (result?.route || result?.canConfirm !== undefined)) {
+    handleStudioReleaseJobResult(id, result);
+    return;
+  }
+
+  if (result?.ref || result?.slug) {
+    handleStudioReleaseJobResult(id, result);
+  }
+
   if (result?.playground) {
     state.playgrounds = [
       ...state.playgrounds.filter((playground) => playground.id !== result.playground.id),
@@ -3721,6 +4147,9 @@ function handleJobResult(id, result) {
 }
 
 function handleStudioCheckResult(result) {
+  // Preserve the in-flight editor draft before any renderStudio() rebuilds the
+  // DOM and forces the Monaco editor to remount from state.
+  captureStudioEditorValue();
   state.studio.checking = false;
   state.studio.checkFindings = result.findings ?? [];
   state.studio.checkSummary = result.summary ?? null;
@@ -3739,7 +4168,9 @@ function handleStudioCheckResult(result) {
     state.studio.activeTab = "editor";
     renderStudio();
     remountStudioEditorIfNeeded();
-    revealStudioCheckNote(studioFindingLine(firstFileFinding), studioFindingColumn(firstFileFinding));
+    if (firstFileFinding) {
+      revealStudioCheckNote(studioFindingLine(firstFileFinding), studioFindingColumn(firstFileFinding));
+    }
   }
   updateStudioControls();
 }
@@ -3980,6 +4411,54 @@ function renderSettings() {
 
           <div class="ps-settings-row">
             <div class="ps-settings-label">
+              Playground database
+              <small>Auto uses MySQL for legacy WordPress versions and SQLite otherwise.</small>
+            </div>
+            <div>
+              <select id="setting-playgroundDatabaseMode">
+                ${playgroundDatabaseOption("auto", settings.playgroundDatabaseMode)}
+                ${playgroundDatabaseOption("sqlite", settings.playgroundDatabaseMode)}
+                ${playgroundDatabaseOption("mysql", settings.playgroundDatabaseMode)}
+              </select>
+            </div>
+          </div>
+
+          <div class="ps-settings-row">
+            <div class="ps-settings-label">
+              Playground MySQL
+              <small>Used when the selected Playground database mode resolves to MySQL. Auto can start managed MariaDB with Docker or OrbStack.</small>
+            </div>
+            <div class="ps-mysql-settings">
+              <label>
+                <span>Host</span>
+                <input type="text" id="setting-playgroundMysqlHost"
+                  value="${escapeAttr(settings.playgroundMysqlHost ?? "127.0.0.1")}" />
+              </label>
+              <label>
+                <span>Port</span>
+                <input type="number" id="setting-playgroundMysqlPort" min="1" max="65535"
+                  value="${escapeAttr(String(settings.playgroundMysqlPort ?? 3306))}" />
+              </label>
+              <label>
+                <span>User</span>
+                <input type="text" id="setting-playgroundMysqlUser"
+                  value="${escapeAttr(settings.playgroundMysqlUser ?? "root")}" />
+              </label>
+              <label>
+                <span>Password</span>
+                <input type="password" id="setting-playgroundMysqlPassword"
+                  value="${escapeAttr(settings.playgroundMysqlPassword ?? "")}" />
+              </label>
+              <label class="is-wide">
+                <span>Database prefix</span>
+                <input type="text" id="setting-playgroundMysqlDatabasePrefix"
+                  value="${escapeAttr(settings.playgroundMysqlDatabasePrefix ?? "pressship_playground")}" />
+              </label>
+            </div>
+          </div>
+
+          <div class="ps-settings-row">
+            <div class="ps-settings-label">
               Auto-refresh
               <small>Reload My Plugins and Local Plugins every N seconds (0 disables).</small>
             </div>
@@ -4049,6 +4528,15 @@ function bumpOption(value, current) {
   return `<option value="${value}"${current === value ? " selected" : ""}>${capitalize(value)}</option>`;
 }
 
+function playgroundDatabaseOption(value, current) {
+  const labels = {
+    auto: "Auto",
+    sqlite: "SQLite",
+    mysql: "MySQL"
+  };
+  return `<option value="${value}"${(current ?? "auto") === value ? " selected" : ""}>${labels[value]}</option>`;
+}
+
 function renderAiAssistantOptions(current) {
   const providers = aiAssistanceProviders();
   return providers
@@ -4064,15 +4552,28 @@ function aiAssistantOption(value, label, current, options = {}) {
   return `<option value="${escapeAttr(value)}"${current === value ? " selected" : ""}${options.disabled ? " disabled" : ""}>${escapeHtml(label)}</option>`;
 }
 
+function renderHarnessIcon(options = {}) {
+  const className = options.className ? ` ${options.className}` : "";
+  const providerSrc = options.provider ? HARNESS_ICON.providers[options.provider] : "";
+  const providerClass = providerSrc ? " is-provider-icon" : "";
+  const src = providerSrc || (options.mono ? HARNESS_ICON.mono : HARNESS_ICON.color);
+  return `<img class="ps-harness-icon${className}${providerClass}" src="${escapeAttr(src)}" alt="" aria-hidden="true" loading="lazy" decoding="async">`;
+}
+
 function renderAiAssistanceStatus() {
   const providers = aiAssistanceProviders();
   if (state.aiAssistance.loading) {
     return `
       <div class="ps-ai-status-grid">
         <div class="ps-ai-status-card is-loading">
-          <span class="dashicons dashicons-update" aria-hidden="true"></span>
-          <strong>Detecting AI assistants…</strong>
-          <small>Checking local Harness providers on PATH.</small>
+          <div class="ps-ai-status-card-header">
+            ${renderHarnessIcon({ className: "ps-ai-status-icon" })}
+            <div class="ps-ai-status-title">
+              <strong>Detecting AI assistants…</strong>
+              <small>Checking local Harness providers on PATH.</small>
+            </div>
+            <span class="dashicons dashicons-update ps-ai-status-spinner" aria-hidden="true"></span>
+          </div>
         </div>
       </div>
     `;
@@ -4084,9 +4585,12 @@ function renderAiAssistanceStatus() {
         .map(
           (provider) => `
             <div class="ps-ai-status-card ps-ai-status-${escapeAttr(provider.status)}">
-              <div>
-                <strong>${escapeHtml(provider.label)}</strong>
-                ${badge(aiAssistantStatusLabel(provider), aiAssistantBadgeTone(provider.status))}
+              <div class="ps-ai-status-card-header">
+                ${renderHarnessIcon({ className: "ps-ai-status-icon", provider: provider.id })}
+                <div class="ps-ai-status-title">
+                  <strong>${escapeHtml(provider.label)}</strong>
+                  ${badge(aiAssistantStatusLabel(provider), aiAssistantBadgeTone(provider.status))}
+                </div>
               </div>
               <code>${escapeHtml(provider.checkedCommand ?? `${provider.command} status`)}</code>
               <small>${escapeHtml(provider.detail)}</small>
@@ -4105,24 +4609,54 @@ function renderAiAssistanceStatus() {
 
 function aiAssistanceProviders() {
   const detected = new Map((state.aiAssistance.providers ?? []).map((provider) => [provider.id, provider]));
-  return [
-    fallbackAiProvider("codex", "Codex", "codex --version"),
-    fallbackAiProvider("claude", "Claude", "claude --version"),
-    fallbackAiProvider("copilot", "Copilot", "copilot --version"),
-    fallbackAiProvider("gemini", "Gemini", "gemini --version"),
-    fallbackAiProvider("wp-studio", "WP Studio", "npx --version")
-  ].map((provider) => detected.get(provider.id) ?? provider);
+  const harnesses = aiAssistantHarnesses();
+  const providers = harnesses.map((harness) => detected.get(harness.id) ?? fallbackAiProvider(harness));
+
+  for (const provider of detected.values()) {
+    if (!providers.some((item) => item.id === provider.id)) {
+      providers.push(provider);
+    }
+  }
+
+  return providers;
 }
 
-function fallbackAiProvider(id, label, checkedCommand) {
+function aiAssistantHarnesses() {
+  const harnesses = state.aiAssistance.harnesses?.length
+    ? state.aiAssistance.harnesses
+    : state.bootstrap?.aiHarnesses;
+
+  return harnesses?.length
+    ? harnesses
+    : [
+        fallbackAiHarness("claude", "Claude Code", "@anthropic-ai/claude-agent-sdk"),
+        fallbackAiHarness("codex", "Codex CLI", "@openai/codex-sdk"),
+        fallbackAiHarness("copilot", "GitHub Copilot CLI", "@github/copilot-sdk"),
+        fallbackAiHarness("cursor", "Cursor", "@cursor/sdk"),
+        fallbackAiHarness("gemini", "Gemini CLI", "gemini --version", "gemini"),
+        fallbackAiHarness("opencode", "OpenCode", "@opencode-ai/sdk"),
+        fallbackAiHarness("wp-studio", "WP Studio", "npx --version", "npx")
+      ];
+}
+
+function fallbackAiHarness(id, label, checkedCommand, command = checkedCommand) {
   return {
     id,
     label,
-    command: id,
+    command,
+    checkedCommand
+  };
+}
+
+function fallbackAiProvider(harness) {
+  return {
+    id: harness.id,
+    label: harness.label,
+    command: harness.command,
     installed: false,
     status: "not_installed",
     detail: "Not checked yet.",
-    checkedCommand
+    checkedCommand: harness.checkedCommand
   };
 }
 
@@ -4159,6 +4693,12 @@ async function saveSettings() {
     defaultBumpLevel: document.getElementById("setting-defaultBumpLevel").value,
     playgroundPortStart: Number(document.getElementById("setting-playgroundPortStart").value),
     playgroundPortEnd: Number(document.getElementById("setting-playgroundPortEnd").value),
+    playgroundDatabaseMode: document.getElementById("setting-playgroundDatabaseMode").value,
+    playgroundMysqlHost: document.getElementById("setting-playgroundMysqlHost").value.trim(),
+    playgroundMysqlPort: Number(document.getElementById("setting-playgroundMysqlPort").value),
+    playgroundMysqlUser: document.getElementById("setting-playgroundMysqlUser").value.trim(),
+    playgroundMysqlPassword: document.getElementById("setting-playgroundMysqlPassword").value,
+    playgroundMysqlDatabasePrefix: document.getElementById("setting-playgroundMysqlDatabasePrefix").value.trim(),
     autoRefreshSeconds: Number(document.getElementById("setting-autoRefreshSeconds").value),
     confirmDestructiveActions: document.getElementById("setting-confirmDestructiveActions").checked,
     debugMode: document.getElementById("setting-debugMode").checked
@@ -4200,8 +4740,12 @@ async function loadAiAssistance(options = {}) {
     state.aiAssistance = {
       loading: false,
       detectedAt: result.detectedAt,
+      harnesses: result.harnesses ?? state.aiAssistance.harnesses ?? [],
       providers: result.providers ?? []
     };
+    if (state.bootstrap && result.harnesses) {
+      state.bootstrap.aiHarnesses = result.harnesses;
+    }
     renderSettings();
     if (options.notify) {
       notice("AI assistance status refreshed.", "success");
@@ -4230,7 +4774,8 @@ function configureAutoRefresh() {
     if (document.hidden) return;
     void Promise.all([
       state.activeView === "remote" ? loadRemote() : Promise.resolve(),
-      state.activeView === "local" ? loadLocal() : Promise.resolve()
+      state.activeView === "local" ? loadLocal() : Promise.resolve(),
+      state.activeView === "release" ? loadReleaseBoard() : Promise.resolve()
     ]);
   }, seconds * 1000);
 }
@@ -4255,6 +4800,13 @@ function showView(view) {
       .querySelector(`#adminmenu li[data-view="${view}"]`)
       ?.classList.add("wp-has-current-submenu");
     closeDetail();
+    if (view === "release") {
+      if (!state.releaseBoard.loading && !state.releaseBoard.plugins.length) {
+        void loadReleaseBoard();
+      } else {
+        renderReleaseBoard();
+      }
+    }
   };
 
   if (typeof document.startViewTransition === "function") {
@@ -4297,6 +4849,13 @@ function commandItems() {
       subtitle: "Plugin folders Pressship tracks locally",
       icon: "dashicons-download",
       run: () => showView("local")
+    },
+    {
+      id: "view:release",
+      title: "Go to Release Management",
+      subtitle: "Release status for every local plugin",
+      icon: "dashicons-update",
+      run: () => showView("release")
     },
     {
       id: "view:settings",
@@ -4349,6 +4908,15 @@ function commandItems() {
       icon: "dashicons-editor-code",
       run: () => {
         void openStudio("local", plugin.id);
+      }
+    });
+    base.push({
+      id: `release:${plugin.id}`,
+      title: `Manage release • ${plugin.name}`,
+      subtitle: plugin.slug,
+      icon: "dashicons-update",
+      run: () => {
+        void openStudio("local", plugin.id, { sidebarTab: "release" });
       }
     });
   }
@@ -4634,6 +5202,264 @@ function formatTime(iso) {
   }
 }
 
+function renderStudioAiMarkdown(value) {
+  const markdown = String(value ?? "");
+  if (!markdown.trim()) {
+    return "";
+  }
+
+  try {
+    return sanitizeMarkdownHtml(markdownParser(markdown));
+  } catch {
+    return `<p>${escapeHtml(markdown)}</p>`;
+  }
+}
+
+function basicMarkdownToHtml(value) {
+  const lines = String(value ?? "").replace(/\r\n?/g, "\n").split("\n");
+  const blocks = [];
+  let paragraph = [];
+  let listType = "";
+  let listItems = [];
+  let quoteLines = [];
+  let codeLanguage = "";
+  let codeLines = [];
+
+  const flushParagraph = () => {
+    if (!paragraph.length) {
+      return;
+    }
+
+    blocks.push(`<p>${parseBasicInlineMarkdown(paragraph.join(" "))}</p>`);
+    paragraph = [];
+  };
+
+  const flushList = () => {
+    if (!listType) {
+      return;
+    }
+
+    blocks.push(`<${listType}>${listItems.join("")}</${listType}>`);
+    listType = "";
+    listItems = [];
+  };
+
+  const flushQuote = () => {
+    if (!quoteLines.length) {
+      return;
+    }
+
+    blocks.push(`<blockquote>${basicMarkdownToHtml(quoteLines.join("\n"))}</blockquote>`);
+    quoteLines = [];
+  };
+
+  const flushOpenBlocks = () => {
+    flushParagraph();
+    flushList();
+    flushQuote();
+  };
+
+  for (const line of lines) {
+    const fence = line.match(/^```([\w-]*)\s*$/);
+    if (codeLanguage || codeLines.length) {
+      if (fence) {
+        blocks.push(renderBasicCodeBlock(codeLines.join("\n"), codeLanguage));
+        codeLanguage = "";
+        codeLines = [];
+      } else {
+        codeLines.push(line);
+      }
+      continue;
+    }
+
+    if (fence) {
+      flushOpenBlocks();
+      codeLanguage = fence[1] || "plain";
+      codeLines = [];
+      continue;
+    }
+
+    if (!line.trim()) {
+      flushOpenBlocks();
+      continue;
+    }
+
+    const heading = line.match(/^(#{1,6})\s+(.+)$/);
+    if (heading) {
+      flushOpenBlocks();
+      const level = heading[1].length;
+      blocks.push(`<h${level}>${parseBasicInlineMarkdown(heading[2])}</h${level}>`);
+      continue;
+    }
+
+    const quote = line.match(/^>\s?(.*)$/);
+    if (quote) {
+      flushParagraph();
+      flushList();
+      quoteLines.push(quote[1]);
+      continue;
+    }
+
+    const unordered = line.match(/^\s*[-*+]\s+(.+)$/);
+    if (unordered) {
+      flushParagraph();
+      flushQuote();
+      if (listType !== "ul") {
+        flushList();
+        listType = "ul";
+      }
+      listItems.push(`<li>${parseBasicInlineMarkdown(unordered[1])}</li>`);
+      continue;
+    }
+
+    const ordered = line.match(/^\s*\d+[.)]\s+(.+)$/);
+    if (ordered) {
+      flushParagraph();
+      flushQuote();
+      if (listType !== "ol") {
+        flushList();
+        listType = "ol";
+      }
+      listItems.push(`<li>${parseBasicInlineMarkdown(ordered[1])}</li>`);
+      continue;
+    }
+
+    flushList();
+    flushQuote();
+    paragraph.push(line.trim());
+  }
+
+  flushOpenBlocks();
+  if (codeLanguage || codeLines.length) {
+    blocks.push(renderBasicCodeBlock(codeLines.join("\n"), codeLanguage || "plain"));
+  }
+
+  return blocks.join("");
+}
+
+function renderBasicCodeBlock(code, language) {
+  const languageClass = markdownLanguageClass(language);
+  return `<pre><code${languageClass ? ` class="${escapeAttr(languageClass)}"` : ""}>${escapeHtml(code)}</code></pre>`;
+}
+
+function parseBasicInlineMarkdown(value) {
+  return String(value ?? "")
+    .split(/(`[^`]*`)/g)
+    .map((part) => {
+      if (part.startsWith("`") && part.endsWith("`")) {
+        return `<code>${escapeHtml(part.slice(1, -1))}</code>`;
+      }
+
+      return escapeHtml(part)
+        .replace(/\[([^\]]+)\]\(([^)\s]+)(?:\s+"([^"]+)")?\)/g, (_match, label, href, title) =>
+          basicMarkdownLink(label, href, title)
+        )
+        .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+        .replace(/__([^_]+)__/g, "<strong>$1</strong>")
+        .replace(/\*([^*]+)\*/g, "<em>$1</em>")
+        .replace(/_([^_]+)_/g, "<em>$1</em>")
+        .replace(/~~([^~]+)~~/g, "<del>$1</del>");
+    })
+    .join("");
+}
+
+function basicMarkdownLink(label, href, title) {
+  if (!isSafeMarkdownHref(href)) {
+    return label;
+  }
+
+  const titleAttr = title ? ` title="${escapeAttr(title)}"` : "";
+  return `<a href="${escapeAttr(href)}"${titleAttr}>${label}</a>`;
+}
+
+function markdownLanguageClass(language) {
+  const normalized = String(language ?? "").trim().toLowerCase();
+  return normalized && /^[\w-]+$/.test(normalized) && normalized !== "plain" ? `language-${normalized}` : "";
+}
+
+function sanitizeMarkdownHtml(html) {
+  const template = document.createElement("template");
+  template.innerHTML = String(html ?? "");
+  sanitizeMarkdownChildren(template.content);
+  return template.innerHTML;
+}
+
+function sanitizeMarkdownChildren(parent) {
+  for (const child of Array.from(parent.childNodes)) {
+    sanitizeMarkdownNode(child);
+  }
+}
+
+function sanitizeMarkdownNode(node) {
+  if (node.nodeType === Node.COMMENT_NODE) {
+    node.remove();
+    return;
+  }
+
+  if (node.nodeType !== Node.ELEMENT_NODE) {
+    return;
+  }
+
+  const element = node;
+  const tag = element.tagName.toLowerCase();
+
+  if (["script", "style", "iframe", "object", "embed", "svg", "math", "link", "meta"].includes(tag)) {
+    element.remove();
+    return;
+  }
+
+  sanitizeMarkdownChildren(element);
+
+  if (!MARKDOWN_ALLOWED_TAGS.has(tag)) {
+    element.replaceWith(...Array.from(element.childNodes));
+    return;
+  }
+
+  sanitizeMarkdownAttributes(element, tag);
+}
+
+function sanitizeMarkdownAttributes(element, tag) {
+  const allowedAttributes = MARKDOWN_ALLOWED_ATTRIBUTES[tag] ?? new Set();
+
+  for (const attribute of Array.from(element.attributes)) {
+    if (!allowedAttributes.has(attribute.name)) {
+      element.removeAttribute(attribute.name);
+      continue;
+    }
+
+    if (tag === "a" && attribute.name === "href" && !isSafeMarkdownHref(attribute.value)) {
+      element.removeAttribute(attribute.name);
+    }
+
+    if (tag === "code" && attribute.name === "class" && !/^language-[\w-]+$/.test(attribute.value)) {
+      element.removeAttribute(attribute.name);
+    }
+  }
+
+  if (tag === "a" && element.hasAttribute("href")) {
+    element.setAttribute("target", "_blank");
+    element.setAttribute("rel", "noopener noreferrer");
+  }
+}
+
+function isSafeMarkdownHref(value) {
+  const href = String(value ?? "").trim();
+  if (!href) {
+    return false;
+  }
+
+  if (href.startsWith("#")) {
+    return true;
+  }
+
+  try {
+    const url = new URL(href, window.location.origin);
+    return url.protocol === "http:" || url.protocol === "https:" || url.protocol === "mailto:";
+  } catch {
+    return false;
+  }
+}
+
 function escapeHtml(value) {
   return String(value)
     .replaceAll("&", "&amp;")
@@ -4649,4 +5475,951 @@ function escapeMarkdown(value) {
 
 function escapeAttr(value) {
   return escapeHtml(value);
+}
+
+/* ===================================================================
+ * Open in Library — clones from WordPress.org SVN or jumps to existing
+ * =================================================================== */
+
+async function openInLibrary(slug) {
+  if (!slug) {
+    return;
+  }
+  const existing = state.local.find((entry) => entry.slug === slug);
+  if (existing) {
+    await openStudio("local", existing.id);
+    return;
+  }
+  await createJob({ type: "clone", slug });
+  notice(`Cloning ${slug} into your local library…`, "info");
+}
+
+/* ===================================================================
+ * Card kebab menus
+ * =================================================================== */
+
+function toggleKebabMenu(menuId, button) {
+  if (!menuId) return;
+  const menu = document.getElementById(menuId);
+  if (!menu) return;
+  const open = menu.hidden;
+  document.querySelectorAll(".ps-kebab-menu").forEach((node) => {
+    if (node !== menu) {
+      node.hidden = true;
+      const opener = document.querySelector(`[data-kebab-id="${node.id}"]`);
+      opener?.setAttribute("aria-expanded", "false");
+    }
+  });
+  menu.hidden = !open;
+  button.setAttribute("aria-expanded", open ? "true" : "false");
+}
+
+document.addEventListener("click", (event) => {
+  const inside = event.target.closest(".ps-kebab-wrap, .ps-kebab-menu");
+  if (!inside) {
+    document.querySelectorAll(".ps-kebab-menu").forEach((node) => {
+      if (!node.hidden) {
+        node.hidden = true;
+        const opener = document.querySelector(`[data-kebab-id="${node.id}"]`);
+        opener?.setAttribute("aria-expanded", "false");
+      }
+    });
+  }
+});
+
+/* ===================================================================
+ * Release Management board (top-level view)
+ * =================================================================== */
+
+async function loadReleaseBoard(options = {}) {
+  if (!els.release) {
+    return;
+  }
+  state.releaseBoard.loading = true;
+  state.releaseBoard.error = "";
+  renderReleaseBoard();
+  try {
+    const result = await api("/api/release-board");
+    state.releaseBoard.plugins = result.plugins ?? [];
+    if (options.notify) {
+      notice("Release board refreshed.", "info");
+    }
+  } catch (error) {
+    state.releaseBoard.error = error.message;
+  } finally {
+    state.releaseBoard.loading = false;
+    renderReleaseBoard();
+  }
+}
+
+function renderReleaseBoard() {
+  if (!els.release) {
+    return;
+  }
+  if (state.releaseBoard.loading && !state.releaseBoard.plugins.length) {
+    els.release.innerHTML = loadingShell("Reading release state for every local plugin…");
+    return;
+  }
+  if (state.releaseBoard.error) {
+    els.release.innerHTML = emptyState({
+      title: "Could not load release board.",
+      message: state.releaseBoard.error,
+      icon: "dashicons-warning"
+    });
+    return;
+  }
+  if (!state.releaseBoard.plugins.length) {
+    els.release.innerHTML = emptyState({
+      title: "No local plugins to release.",
+      message: "Add a plugin folder to your Local Library, then come back here.",
+      icon: "dashicons-update"
+    });
+    return;
+  }
+
+  const rows = state.releaseBoard.plugins.map(releaseBoardCard).join("");
+  els.release.innerHTML = `
+    <div class="ps-card-toolbar" role="region" aria-label="Release board summary">
+      <span class="ps-card-toolbar-count">
+        <span class="dashicons dashicons-update" aria-hidden="true"></span>
+        ${escapeHtml(
+          `${state.releaseBoard.plugins.length} plugin${state.releaseBoard.plugins.length === 1 ? "" : "s"} tracked`
+        )}
+      </span>
+      <span class="ps-card-toolbar-hint">Tap "Manage release" to open the Studio funnel.</span>
+    </div>
+    <div class="ps-release-board">${rows}</div>
+  `;
+}
+
+function releaseBoardCard(entry) {
+  const statuses = entry.statuses && entry.statuses.length
+    ? entry.statuses.map((status) => badge(status, statusBadgeTone(status))).join("")
+    : badge("unknown", "warning");
+  const versionLine = (label, value) =>
+    `<div class="ps-release-board-meta-row"><dt>${escapeHtml(label)}</dt><dd>${escapeHtml(value ?? "—")}</dd></div>`;
+  const initials = pluginInitials(entry.name || entry.slug);
+  const blockedClass = entry.releaseBlocked ? " is-blocked" : "";
+
+  return `
+    <article class="ps-release-board-card${blockedClass}${entry.exists === false ? " is-missing" : ""}">
+      <header class="ps-release-board-card-header">
+        <span class="ps-plugin-card-icon" aria-hidden="true">${escapeHtml(initials)}</span>
+        <div class="ps-release-board-title">
+          <h2>${escapeHtml(entry.name)}</h2>
+          <p class="ps-plugin-card-byline">${escapeHtml(entry.slug)}</p>
+        </div>
+        <div class="ps-release-board-status">${statuses}</div>
+      </header>
+      <dl class="ps-release-board-meta">
+        ${versionLine("Header", entry.localVersion)}
+        ${versionLine("Stable tag", entry.readmeStableTag)}
+        ${versionLine("WordPress.org", entry.remoteVersion)}
+        ${versionLine("Latest SVN tag", entry.latestSvnTag)}
+      </dl>
+      ${entry.messages && entry.messages.length
+        ? `<ul class="ps-release-board-messages">${entry.messages
+            .map((message) => `<li>${escapeHtml(message)}</li>`)
+            .join("")}</ul>`
+        : ""}
+      <footer class="ps-release-board-card-footer">
+        <button type="button" class="button button-primary" data-action="manage-release" data-id="${escapeAttr(entry.id)}" ${entry.exists === false ? "disabled" : ""}>
+          <span class="dashicons dashicons-update" aria-hidden="true"></span>
+          Manage release
+        </button>
+        <button type="button" class="ps-plugin-card-secondary" data-action="version-state" data-id="${escapeAttr(entry.id)}" ${entry.exists === false ? "disabled" : ""}>
+          <span class="dashicons dashicons-tag" aria-hidden="true"></span>
+          Version state
+        </button>
+      </footer>
+    </article>
+  `;
+}
+
+/* ===================================================================
+ * Studio sidebar tab toggle + per-plugin persistence
+ * =================================================================== */
+
+function studioPluginKey() {
+  if (!state.studio?.scope || !state.studio?.id) {
+    return "";
+  }
+  return `${state.studio.scope}:${state.studio.id}`;
+}
+
+function setStudioSidebarTab(tab) {
+  const next = tab === "release" ? "release" : "ai";
+  if (state.studio.sidebarTab === next) {
+    return;
+  }
+  state.studio.sidebarTab = next;
+  saveStudioSidebarTab(studioPluginKey(), next);
+  updateStudioSidebar();
+  if (next === "release" && state.studio.scope === "local" && !state.studio.release.tags) {
+    void loadStudioReleaseTags();
+  }
+}
+
+function updateStudioSidebar() {
+  const node = document.getElementById("studio-ai");
+  if (!node) {
+    return;
+  }
+  node.innerHTML = renderStudioAiSidebar();
+  const messages = document.getElementById("studio-ai-messages");
+  if (messages) {
+    messages.scrollTop = messages.scrollHeight;
+  }
+  updateStudioAiControls();
+}
+
+/* ===================================================================
+ * Studio Release pane — the funnel UI
+ * =================================================================== */
+
+function renderStudioReleasePane() {
+  if (state.studio.scope !== "local") {
+    return `
+      <div class="studio-release-pane">
+        <div class="studio-release-empty">
+          <span class="dashicons dashicons-update" aria-hidden="true"></span>
+          <strong>Release management is local-only</strong>
+          <p>Open a local plugin to manage its release lifecycle.</p>
+        </div>
+      </div>
+    `;
+  }
+  if (!state.studio.id) {
+    return `
+      <div class="studio-release-pane">
+        <div class="studio-release-empty">
+          <span class="dashicons dashicons-update" aria-hidden="true"></span>
+          <strong>Open a plugin to start</strong>
+        </div>
+      </div>
+    `;
+  }
+
+  const versionState = state.versionStates.get(state.studio.id);
+  const release = state.studio.release;
+  return `
+    <div class="studio-release-pane">
+      <header class="studio-release-header">
+        <div class="studio-release-title">
+          <strong>Release funnel</strong>
+          <small>${escapeHtml(state.studio.plugin?.slug ?? state.studio.id ?? "")}</small>
+        </div>
+        <button class="studio-ai-icon-button" type="button" data-action="studio-release-refresh" aria-label="Refresh release state" title="Refresh release state">
+          <span class="dashicons dashicons-update-alt" aria-hidden="true"></span>
+        </button>
+      </header>
+      <ol class="ps-release-funnel">
+        ${renderStudioReleaseStepVersion(versionState, release)}
+        ${renderStudioReleaseStepTags(release)}
+        ${renderStudioReleaseStepValidate(versionState, release)}
+        ${renderStudioReleaseStepPublish(versionState, release)}
+      </ol>
+    </div>
+  `;
+}
+
+function renderStudioReleaseStepShell(number, title, summary, body) {
+  return `
+    <li class="ps-release-step">
+      <span class="ps-release-step-connector" aria-hidden="true"></span>
+      <header class="ps-release-step-header">
+        <span class="ps-release-step-marker">${escapeHtml(String(number))}</span>
+        <div class="ps-release-step-heading">
+          <strong>${escapeHtml(title)}</strong>
+          ${summary ? `<small>${summary}</small>` : ""}
+        </div>
+      </header>
+      <div class="ps-release-step-body">${body}</div>
+    </li>
+  `;
+}
+
+function renderStudioReleaseStepVersion(versionState, release) {
+  const localVersion = versionState?.localVersion ?? "—";
+  const stable = versionState?.readmeStableTag ?? "—";
+  const remote = versionState?.remoteVersion ?? "—";
+  const latestTag = versionState?.latestSvnTag ?? "—";
+  const customDraft = release?.customVersionDraft ?? "";
+
+  const summary = `Header ${escapeHtml(String(localVersion))} · readme ${escapeHtml(String(stable))}`;
+
+  const bumpButton = (level, label) => {
+    const inFlight = release.bumpInFlight === level;
+    const success = release.bumpSuccess === level;
+    const anyBusy = Boolean(release.bumpInFlight);
+    const icon = inFlight
+      ? `<span class="dashicons dashicons-update" aria-hidden="true"></span>`
+      : success
+        ? `<span class="dashicons dashicons-yes" aria-hidden="true"></span>`
+        : "";
+    return `<button class="button button-secondary ps-release-bump-button${inFlight ? " is-busy" : ""}${success ? " is-success" : ""}" type="button" data-action="bump-version" data-id="${escapeAttr(state.studio.id)}" data-bump="${level}" ${anyBusy ? "disabled aria-disabled=\"true\" aria-busy=\"true\"" : ""}>${icon}${escapeHtml(label)}</button>`;
+  };
+  const customBusy = release.bumpInFlight === "custom";
+  const customSuccess = release.bumpSuccess === "custom";
+  const anyBumpBusy = Boolean(release.bumpInFlight);
+  const customIcon = customBusy
+    ? `<span class="dashicons dashicons-update" aria-hidden="true"></span>`
+    : customSuccess
+      ? `<span class="dashicons dashicons-yes" aria-hidden="true"></span>`
+      : "";
+
+  const body = `
+    <dl class="ps-release-step-grid">
+      <div><dt>Current header</dt><dd>${escapeHtml(String(localVersion))}</dd></div>
+      <div><dt>Readme stable tag</dt><dd>${escapeHtml(String(stable))}</dd></div>
+      <div><dt>WordPress.org</dt><dd>${escapeHtml(String(remote))}</dd></div>
+      <div><dt>Latest SVN tag</dt><dd>${escapeHtml(String(latestTag))}</dd></div>
+    </dl>
+    <div class="ps-release-step-bumps">
+      ${bumpButton("patch", "Bump patch")}
+      ${bumpButton("minor", "Bump minor")}
+      ${bumpButton("major", "Bump major")}
+    </div>
+    <div class="ps-release-step-custom">
+      <label>
+        <span>Set custom version</span>
+        <input type="text" id="studio-release-custom-version" value="${escapeAttr(customDraft)}" placeholder="1.2.3" ${customBusy ? "disabled" : ""} />
+      </label>
+      <button class="button ps-release-bump-button${customBusy ? " is-busy" : ""}${customSuccess ? " is-success" : ""}" type="button" data-action="set-custom-version" data-id="${escapeAttr(state.studio.id)}" ${anyBumpBusy ? "disabled aria-disabled=\"true\" aria-busy=\"true\"" : ""}>${customIcon}Set</button>
+    </div>
+    ${release.bumpError ? `<p class="ps-release-inline-error" role="alert"><span class="dashicons dashicons-warning" aria-hidden="true"></span>${escapeHtml(release.bumpError)}</p>` : ""}
+  `;
+
+  return renderStudioReleaseStepShell(1, "Version state", summary, body);
+}
+
+function renderStudioReleaseStepTags(release) {
+  let body;
+  if (release.tagsLoading && !release.tags) {
+    body = loadingShell("Reading SVN tags…");
+  } else if (release.tagsError) {
+    body = `<p class="ps-release-step-error">${escapeHtml(release.tagsError)}</p>`;
+  } else if (!release.tags) {
+    body = `<p class="ps-release-step-muted">Tag information will load when you open the Release pane.</p>`;
+  } else {
+    const list = release.tags;
+    const trunkRow = list.trunk
+      ? renderStudioReleaseTagRow({
+          name: "trunk",
+          isCurrent: Boolean(list.trunk.isCurrent),
+          isUncommitted: false,
+          isTrunk: true
+        })
+      : "";
+    const tagRows = (list.tags ?? [])
+      .map((tag) => renderStudioReleaseTagRow(tag))
+      .join("");
+    body = `
+      <ul class="ps-release-tag-list">
+        ${trunkRow}
+        ${tagRows || `<li class="ps-release-tag-empty">No tags yet.</li>`}
+      </ul>
+      ${renderStudioReleaseSwitchConflict(release)}
+      <div class="ps-release-step-newtag">
+        <label>
+          <span>Create tag from current version</span>
+          <input type="text" id="studio-release-new-tag" value="${escapeAttr(release.newTagDraft ?? "")}" placeholder="1.2.3" />
+        </label>
+        <button class="button button-secondary" type="button" data-action="studio-release-create">
+          <span class="dashicons dashicons-plus-alt2" aria-hidden="true"></span>
+          Create tag
+        </button>
+      </div>
+      ${release.newTagError ? `<p class="ps-release-inline-error"><span class="dashicons dashicons-warning" aria-hidden="true"></span>${escapeHtml(release.newTagError)}</p>` : ""}
+    `;
+  }
+
+  return renderStudioReleaseStepShell(
+    2,
+    "Tags",
+    release.tags?.currentRef ? `Tracking ${escapeHtml(release.tags.currentRef)}` : "",
+    body
+  );
+}
+
+function renderStudioReleaseSwitchConflict(release) {
+  if (release.switchConflict) {
+    const conflict = release.switchConflict;
+    const tag = conflict.ref ?? release.switchingTag;
+    const target = tag === "trunk" ? "trunk" : `tags/${tag}`;
+    const anySwitching = Boolean(release.switchingTag);
+    return `
+      <div class="ps-release-switch-conflict" role="alert">
+        <p><span class="dashicons dashicons-warning" aria-hidden="true"></span>${escapeHtml(`SVN conflict while switching to ${target}.`)}</p>
+        <div class="ps-release-conflict-actions">
+          <button class="button button-small" type="button" data-action="studio-release-switch" data-tag="${escapeAttr(tag)}" data-resolution="override" ${anySwitching ? "disabled aria-disabled=\"true\"" : ""}>
+            <span class="dashicons dashicons-yes" aria-hidden="true"></span>
+            Override conflicts
+          </button>
+          <button class="button button-small button-link-delete" type="button" data-action="studio-release-switch" data-tag="${escapeAttr(tag)}" data-resolution="revert" ${anySwitching ? "disabled aria-disabled=\"true\"" : ""}>
+            <span class="dashicons dashicons-undo" aria-hidden="true"></span>
+            Revert & switch
+          </button>
+        </div>
+      </div>
+    `;
+  }
+
+  return release.switchError
+    ? `<p class="ps-release-inline-error"><span class="dashicons dashicons-warning" aria-hidden="true"></span>${escapeHtml(`Switch failed: ${release.switchError}`)}</p>`
+    : "";
+}
+
+function renderStudioReleaseTagRow(tag) {
+  const release = state.studio.release;
+  const isCurrent = tag.isCurrent ? `<span class="ps-release-tag-current">current</span>` : "";
+  const isUncommitted = tag.isUncommitted
+    ? `<span class="ps-release-tag-uncommitted">uncommitted</span>`
+    : "";
+  const switching = release.switchingTag === tag.name;
+  const anySwitching = Boolean(release.switchingTag);
+  const switchingLabel = release.switchingResolution === "override" || release.switchingResolution === "revert"
+    ? "Resolving"
+    : "Switching";
+  const switchButton = tag.isCurrent
+    ? ""
+    : `<button class="button button-small" type="button" data-action="studio-release-switch" data-tag="${escapeAttr(tag.name)}" ${anySwitching ? "disabled aria-disabled=\"true\"" : ""}>${switching ? `<span class="dashicons dashicons-update" aria-hidden="true"></span>${switchingLabel}` : "Switch"}</button>`;
+  const confirmKey = `delete-tag:${tag.name}`;
+  const pendingConfirm = state.studio.pendingConfirms?.get(confirmKey);
+  const deleteButton = tag.isUncommitted
+    ? `<button class="button button-small ${pendingConfirm ? "is-confirming" : ""}" type="button" data-action="studio-release-delete" data-tag="${escapeAttr(tag.name)}" aria-label="Delete tag ${escapeAttr(tag.name)}" ${anySwitching ? "disabled" : ""}>
+        ${pendingConfirm ? "Click again to confirm" : `<span class="dashicons dashicons-trash" aria-hidden="true"></span><span class="screen-reader-text">Delete</span>`}
+      </button>`
+    : "";
+
+  return `
+    <li class="ps-release-tag-row${tag.isCurrent ? " is-current" : ""}${tag.isUncommitted ? " is-uncommitted" : ""}${switching ? " is-switching" : ""}" data-tag-name="${escapeAttr(tag.name)}">
+      <span class="ps-release-tag-name">
+        <span class="dashicons ${tag.isTrunk ? "dashicons-networking" : "dashicons-tag"}" aria-hidden="true"></span>
+        ${escapeHtml(tag.name)}
+        ${isCurrent}
+        ${isUncommitted}
+      </span>
+      ${switching ? `<span class="ps-release-tag-spinner"><span class="dashicons dashicons-update" aria-hidden="true"></span>switching…</span>` : ""}
+      <span class="ps-release-tag-actions">
+        ${switchButton}
+        ${deleteButton}
+      </span>
+    </li>
+  `;
+}
+
+function renderStudioReleaseStepValidate(versionState, release) {
+  const summary = state.studio.checkSummary;
+  const summaryLine = summary
+    ? `Plugin Check: ${escapeHtml(String(summary.error || 0))} errors, ${escapeHtml(String(summary.warning || 0))} warnings`
+    : "Plugin Check has not been run yet.";
+  const validationBlocked = release.dryRun?.validationBlocked;
+  const body = `
+    <ul class="ps-release-validate-list">
+      <li>
+        <span><span class="dashicons dashicons-yes-alt" aria-hidden="true"></span>Plugin Check</span>
+        <span class="ps-release-validate-state">${escapeHtml(summary ? "Ran" : "Pending")}</span>
+        <button class="button button-small" type="button" data-action="studio-check">${summary ? "Re-run" : "Run"}</button>
+      </li>
+      <li>
+        <span><span class="dashicons dashicons-media-text" aria-hidden="true"></span>Readme stable tag</span>
+        <span class="ps-release-validate-state">${escapeHtml(versionState?.readmeStableTag ? "Detected" : "Missing")}</span>
+        <button class="button button-small" type="button" data-action="version-state" data-id="${escapeAttr(state.studio.id)}">View</button>
+      </li>
+      <li>
+        <span><span class="dashicons dashicons-archive" aria-hidden="true"></span>Package</span>
+        <span class="ps-release-validate-state">${escapeHtml(release.dryRun?.package?.file ? "Ready" : "Build on dry-run")}</span>
+      </li>
+    </ul>
+    ${validationBlocked
+      ? `<p class="ps-release-step-error">Validation reported blocking findings. Fix them before publishing.</p>`
+      : ""}
+  `;
+  return renderStudioReleaseStepShell(3, "Validate", summaryLine, body);
+}
+
+function renderStudioReleaseStepPublish(versionState, release) {
+  const defaultAction = state.settings?.defaultPublishAction ?? "auto";
+  const dryRun = release.dryRun;
+  const running = release.dryRunRunning;
+  const publishConfirmKey = "publish";
+  const pendingConfirm = state.studio.pendingConfirms?.get(publishConfirmKey);
+  const detectedRoute = dryRun?.route?.action;
+
+  const body = `
+    <div class="ps-release-publish-options">
+      <button class="button${detectedRoute === "submit" ? " button-primary" : ""}" type="button" data-action="dry-run-publish" data-id="${escapeAttr(state.studio.id)}" data-publish-action="submit" ${running ? "disabled" : ""}>
+        <span class="dashicons dashicons-upload" aria-hidden="true"></span>
+        Dry-run submit
+      </button>
+      <button class="button${detectedRoute === "release" ? " button-primary" : ""}" type="button" data-action="dry-run-publish" data-id="${escapeAttr(state.studio.id)}" data-publish-action="release" ${running ? "disabled" : ""}>
+        <span class="dashicons dashicons-update" aria-hidden="true"></span>
+        Dry-run release
+      </button>
+      <button class="button${defaultAction === "auto" ? " button-primary" : ""}" type="button" data-action="dry-run-publish" data-id="${escapeAttr(state.studio.id)}" data-publish-action="auto" ${running ? "disabled" : ""}>
+        <span class="dashicons dashicons-controls-play" aria-hidden="true"></span>
+        Auto dry-run
+      </button>
+    </div>
+    ${dryRun
+      ? `<div class="ps-release-publish-summary">
+          <p>
+            <strong>${escapeHtml(dryRun.route?.action ?? "publish")}</strong>
+            <small>${escapeHtml(dryRun.route?.reason ?? "")}</small>
+          </p>
+          ${dryRun.canConfirm && dryRun.approvalId
+            ? `<button class="button button-primary ps-release-confirm-button${pendingConfirm ? " is-confirming" : ""}" type="button" data-action="studio-release-publish" data-approval-id="${escapeAttr(dryRun.approvalId)}" data-action-label="${escapeAttr(dryRun.route?.action ?? "publish")}">
+                ${pendingConfirm ? "Click again to confirm" : `Confirm ${escapeHtml(dryRun.route?.action ?? "publish")}`}
+              </button>`
+            : `<p class="ps-release-step-muted">Dry-run did not pass — fix validation findings before publishing.</p>`}
+        </div>`
+      : `<p class="ps-release-step-muted">Run a dry-run to preview the publish plan.</p>`}
+  `;
+
+  const summary = dryRun
+    ? `Detected route: ${escapeHtml(dryRun.route?.action ?? "publish")}`
+    : versionState?.releaseBlocked
+      ? "Blocked — fix version state before publishing"
+      : "";
+
+  return renderStudioReleaseStepShell(4, "Submit / Release", summary, body);
+}
+
+/* ===================================================================
+ * Studio Release pane — actions
+ * =================================================================== */
+
+async function loadStudioReleaseTags(options = {}) {
+  if (!state.studio.id || state.studio.scope !== "local") {
+    return;
+  }
+  state.studio.release.tagsLoading = true;
+  state.studio.release.tagsError = "";
+  updateStudioSidebar();
+  try {
+    const list = await api(`/api/plugins/local/${encodeURIComponent(state.studio.id)}/svn-tags`);
+    state.studio.release.tags = list;
+    state.studio.release.tagsLoadedAt = new Date().toISOString();
+    if (options.notify) {
+      notice("Release tags refreshed.", "info");
+    }
+  } catch (error) {
+    state.studio.release.tagsError = error.message;
+  } finally {
+    state.studio.release.tagsLoading = false;
+    updateStudioSidebar();
+  }
+}
+
+async function refreshStudioAfterReleaseSwitch(result = {}) {
+  if (!state.studio.id || state.studio.scope !== "local") {
+    return;
+  }
+
+  const localId = state.studio.id;
+  const selectedPath = state.studio.selectedFile?.path;
+  try {
+    const [detail, filesResult, checkState, versionState] = await Promise.all([
+      api(`/api/plugins/local/${encodeURIComponent(localId)}`),
+      api(`/api/plugins/local/${encodeURIComponent(localId)}/files`),
+      api(`/api/plugins/local/${encodeURIComponent(localId)}/check-state`).catch(() => ({ state: null })),
+      api(`/api/plugins/local/${encodeURIComponent(localId)}/version-state`).catch(() => null)
+    ]);
+
+    applyStudioPluginDetail("local", localId, detail);
+    state.studio.files = filesResult.files ?? [];
+    applyStudioCheckState(checkState.state);
+    if (versionState) {
+      state.versionStates.set(localId, versionState);
+      renderLocal();
+    }
+
+    const selectedStillExists = selectedPath && state.studio.files.some((file) => file.path === selectedPath);
+    const nextFile = selectedStillExists
+      ? selectedPath
+      : chooseInitialStudioFile(state.studio.files, state.studio.plugin?.slug)?.path;
+
+    if (nextFile) {
+      await selectStudioFile(nextFile, { force: true });
+    } else {
+      state.studio.selectedFile = null;
+      state.studio.fileContent = "";
+      state.studio.draftContent = "";
+      state.studio.dirty = false;
+      renderStudio();
+      remountStudioEditorIfNeeded();
+    }
+
+    const ref = result.ref === "trunk" ? "trunk" : result.ref ? `tags/${result.ref}` : "the selected ref";
+    appendStudioTerminal(`Studio files reloaded from ${ref}.`, "success");
+    updateStudioControls();
+  } catch (error) {
+    appendStudioTerminal(`Studio reload after switch failed: ${error.message}`, "error");
+    renderStudio();
+  }
+}
+
+async function createStudioReleaseTag() {
+  if (!state.studio.id) return;
+  const input = document.getElementById("studio-release-new-tag");
+  const name = (input?.value ?? state.studio.release.newTagDraft ?? "").trim();
+  if (!name) {
+    state.studio.release.newTagError = "Enter a tag name first.";
+    updateStudioSidebar();
+    return;
+  }
+  state.studio.release.newTagDraft = name;
+  state.studio.release.newTagError = "";
+  try {
+    await api(`/api/plugins/local/${encodeURIComponent(state.studio.id)}/svn-tags`, {
+      method: "POST",
+      body: { name }
+    });
+    state.studio.release.newTagDraft = "";
+    notice(`Created tag ${name}.`, "success");
+    await loadStudioReleaseTags();
+  } catch (error) {
+    state.studio.release.newTagError = error.message;
+    updateStudioSidebar();
+  }
+}
+
+async function deleteStudioReleaseTag(element) {
+  if (!state.studio.id) return;
+  const tag = element?.dataset?.tag;
+  if (!tag) return;
+  const key = `delete-tag:${tag}`;
+  if (state.settings?.confirmDestructiveActions === false || armStudioReleaseConfirm(key)) {
+    try {
+      await api(`/api/plugins/local/${encodeURIComponent(state.studio.id)}/svn-tags/${encodeURIComponent(tag)}`, {
+        method: "DELETE"
+      });
+      notice(`Deleted local tag ${tag}.`, "success");
+      await loadStudioReleaseTags();
+    } catch (error) {
+      notice(error.message, "error");
+    }
+    clearStudioReleaseConfirm(key);
+  }
+}
+
+async function switchStudioReleaseTag(tag, resolution) {
+  if (!state.studio.id || !tag) return;
+  if (state.studio.release.switchingTag) {
+    return;
+  }
+  const conflictResolution = ["override", "revert"].includes(resolution) ? resolution : undefined;
+  state.studio.release.switchingTag = tag;
+  state.studio.release.switchingResolution = conflictResolution ?? "";
+  state.studio.release.switchConflict = null;
+  state.studio.release.switchError = "";
+  updateStudioSidebar();
+  try {
+    const body = { type: "svn-switch", localId: state.studio.id, tag };
+    if (conflictResolution) {
+      body.conflictResolution = conflictResolution;
+    }
+    const job = await createJob(body);
+    state.studio.release.switchJobId = job.id;
+    notice(`${conflictResolution ? "Resolving switch to" : "Switching to"} ${tag}…`, "info");
+  } catch (error) {
+    state.studio.release.switchingTag = "";
+    state.studio.release.switchingResolution = "";
+    state.studio.release.switchError = error.message;
+    updateStudioSidebar();
+    notice(error.message, "error");
+  }
+}
+
+async function bumpStudioReleaseVersion(localId, bump) {
+  if (!localId || !["patch", "minor", "major"].includes(bump)) return;
+  if (state.studio.id !== localId) {
+    // Outside the funnel (e.g. invoked from a command palette). Run without
+    // the inline busy state — the global notice is enough feedback.
+    try {
+      const result = await api(`/api/plugins/local/${encodeURIComponent(localId)}/bump-version`, {
+        method: "POST",
+        body: { bump }
+      });
+      applyStudioVersionChangeResult(localId, result);
+      notice(`Version bumped (${bump}).`, "success");
+      await loadLocal();
+    } catch (error) {
+      notice(error.message, "error");
+    }
+    return;
+  }
+  if (state.studio.release.bumpInFlight) {
+    return;
+  }
+  state.studio.release.bumpInFlight = bump;
+  state.studio.release.bumpSuccess = null;
+  state.studio.release.bumpError = "";
+  updateStudioSidebar();
+  try {
+    const result = await api(`/api/plugins/local/${encodeURIComponent(localId)}/bump-version`, {
+      method: "POST",
+      body: { bump }
+    });
+    applyStudioVersionChangeResult(localId, result);
+    state.studio.release.bumpInFlight = null;
+    state.studio.release.bumpSuccess = bump;
+    updateStudioSidebar();
+    setTimeout(() => {
+      if (state.studio.release.bumpSuccess === bump) {
+        state.studio.release.bumpSuccess = null;
+        updateStudioSidebar();
+      }
+    }, 1500);
+    await loadLocal();
+    if (state.studio.id === localId) {
+      await refreshStudioVersionState();
+    }
+  } catch (error) {
+    state.studio.release.bumpInFlight = null;
+    state.studio.release.bumpError = error.message;
+    updateStudioSidebar();
+  }
+}
+
+async function setStudioCustomReleaseVersion(localId) {
+  if (!localId) return;
+  if (state.studio.release.bumpInFlight) {
+    return;
+  }
+  const input = document.getElementById("studio-release-custom-version");
+  const version = (input?.value ?? state.studio.release.customVersionDraft ?? "").trim();
+  if (!version) {
+    state.studio.release.bumpError = "Enter a version to set.";
+    updateStudioSidebar();
+    return;
+  }
+  state.studio.release.customVersionDraft = version;
+  state.studio.release.bumpInFlight = "custom";
+  state.studio.release.bumpSuccess = null;
+  state.studio.release.bumpError = "";
+  updateStudioSidebar();
+  try {
+    const result = await api(`/api/plugins/local/${encodeURIComponent(localId)}/version`, {
+      method: "PUT",
+      body: { version }
+    });
+    applyStudioVersionChangeResult(localId, result);
+    state.studio.release.bumpInFlight = null;
+    state.studio.release.bumpSuccess = "custom";
+    state.studio.release.customVersionDraft = "";
+    updateStudioSidebar();
+    setTimeout(() => {
+      if (state.studio.release.bumpSuccess === "custom") {
+        state.studio.release.bumpSuccess = null;
+        updateStudioSidebar();
+      }
+    }, 1500);
+    await loadLocal();
+    if (state.studio.id === localId) {
+      await refreshStudioVersionState();
+    }
+  } catch (error) {
+    state.studio.release.bumpInFlight = null;
+    state.studio.release.bumpError = error.message;
+    updateStudioSidebar();
+  }
+}
+
+function applyStudioVersionChangeResult(localId, result) {
+  if (result && typeof result === "object") {
+    const { checkState, ...versionState } = result;
+    state.versionStates.set(localId, versionState);
+  }
+  if (state.studio.id === localId && result && Object.prototype.hasOwnProperty.call(result, "checkState")) {
+    applyStudioCheckState(result.checkState);
+    applyStudioCheckMarkers();
+    updateStudioControls();
+  }
+}
+
+async function refreshStudioVersionState() {
+  if (!state.studio.id) return;
+  try {
+    const versionState = await api(
+      `/api/plugins/local/${encodeURIComponent(state.studio.id)}/version-state`
+    );
+    state.versionStates.set(state.studio.id, versionState);
+    updateStudioSidebar();
+  } catch (error) {
+    // ignore — sidebar will keep stale data and notice was already shown
+  }
+}
+
+async function createReleaseDryRunJob(localId, action) {
+  if (!localId) return;
+  state.studio.release.dryRunRunning = true;
+  state.studio.release.dryRun = null;
+  updateStudioSidebar();
+  try {
+    const job = await createJob({
+      type: "dry-run-publish",
+      localId,
+      action: action ?? "auto"
+    });
+    state.studio.release.dryRunJobId = job.id;
+  } catch (error) {
+    state.studio.release.dryRunRunning = false;
+    notice(error.message, "error");
+  } finally {
+    updateStudioSidebar();
+  }
+}
+
+async function confirmStudioRelease(element) {
+  const approvalId = element?.dataset?.approvalId;
+  if (!approvalId) return;
+  const key = "publish";
+  if (state.settings?.confirmDestructiveActions === false || armStudioReleaseConfirm(key)) {
+    try {
+      await createJob({ type: "confirm-publish", approvalId });
+      notice("Publish job started.", "info");
+    } catch (error) {
+      notice(error.message, "error");
+    }
+    clearStudioReleaseConfirm(key);
+  }
+}
+
+/* ===================================================================
+ * Two-step confirm helper (inline pill, 6 second timeout)
+ * =================================================================== */
+
+function armStudioReleaseConfirm(key) {
+  if (!state.studio.pendingConfirms) {
+    state.studio.pendingConfirms = new Map();
+  }
+  const existing = state.studio.pendingConfirms.get(key);
+  if (existing) {
+    clearTimeout(existing.timeoutId);
+    state.studio.pendingConfirms.delete(key);
+    return true;
+  }
+  const timeoutId = setTimeout(() => {
+    state.studio.pendingConfirms?.delete(key);
+    updateStudioSidebar();
+  }, 6000);
+  state.studio.pendingConfirms.set(key, { timeoutId });
+  updateStudioSidebar();
+  return false;
+}
+
+function clearStudioReleaseConfirm(key) {
+  const entry = state.studio.pendingConfirms?.get(key);
+  if (entry?.timeoutId) {
+    clearTimeout(entry.timeoutId);
+  }
+  state.studio.pendingConfirms?.delete(key);
+}
+
+/* ===================================================================
+ * Studio release pane: input draft tracking
+ * =================================================================== */
+
+document.addEventListener("input", (event) => {
+  const target = event.target;
+  if (!target) return;
+  if (target.id === "studio-release-new-tag") {
+    state.studio.release.newTagDraft = target.value;
+  } else if (target.id === "studio-release-custom-version") {
+    state.studio.release.customVersionDraft = target.value;
+  }
+});
+
+/* ===================================================================
+ * Studio release pane: handle dry-run + publish job events
+ * =================================================================== */
+
+function handleStudioReleaseJobResult(jobId, result) {
+  if (!result || typeof result !== "object") return;
+  if (state.studio.release.dryRunJobId === jobId && result.route) {
+    state.studio.release.dryRunRunning = false;
+    state.studio.release.dryRun = result;
+    updateStudioSidebar();
+    return;
+  }
+  if (state.studio.release.switchJobId === jobId && result.conflict) {
+    state.studio.release.switchingTag = "";
+    state.studio.release.switchingResolution = "";
+    state.studio.release.switchJobId = null;
+    state.studio.release.switchConflict = result;
+    state.studio.release.switchError = result.message ?? "SVN switch needs a conflict resolution choice.";
+    appendStudioTerminal(state.studio.release.switchError, "error");
+    updateStudioSidebar();
+    return;
+  }
+  if (state.studio.release.switchJobId === jobId && result.ref) {
+    state.studio.release.switchConflict = null;
+    state.studio.release.switchError = "";
+    if (Object.prototype.hasOwnProperty.call(result, "checkState")) {
+      applyStudioCheckState(result.checkState);
+      applyStudioCheckMarkers();
+      updateStudioControls();
+    }
+    void refreshStudioAfterReleaseSwitch(result);
+    void loadStudioReleaseTags();
+  }
+}
+
+function handleStudioSwitchJobEvent(id, payload) {
+  if (payload.type === "status" || payload.type === "log") {
+    const message = payload.data?.message ?? payload.data;
+    if (message) {
+      appendStudioTerminal(message, payload.type === "log" ? "log" : "status");
+    }
+    return;
+  }
+  if (payload.type === "job-error" || payload.type === "error") {
+    const message = payload.data?.message ?? "Switch failed.";
+    state.studio.release.switchConflict = null;
+    state.studio.release.switchError = String(message);
+    appendStudioTerminal(message, "error");
+    return;
+  }
+  if (payload.type === "done") {
+    const status = payload.data?.status;
+    state.studio.release.switchingTag = "";
+    state.studio.release.switchingResolution = "";
+    state.studio.release.switchJobId = null;
+    if (status === "succeeded") {
+      if (state.studio.release.switchConflict) {
+        updateStudioSidebar();
+        return;
+      }
+      state.studio.release.switchError = "";
+      void loadStudioReleaseTags();
+    } else if (status === "failed" && !state.studio.release.switchError) {
+      state.studio.release.switchError = "Switch job failed (see Activity).";
+    }
+    updateStudioSidebar();
+  }
+}
+
+function handleStudioDryRunJobEvent(id, payload) {
+  if (payload.type === "status" || payload.type === "log") {
+    const message = payload.data?.message ?? payload.data;
+    if (message) {
+      appendStudioTerminal(message, payload.type === "log" ? "log" : "status");
+    }
+    return;
+  }
+  if (payload.type === "job-error" || payload.type === "error") {
+    state.studio.release.dryRunRunning = false;
+    const message = payload.data?.message ?? "Dry-run failed.";
+    appendStudioTerminal(message, "error");
+    updateStudioSidebar();
+    return;
+  }
+  if (payload.type === "done") {
+    if (payload.data?.status !== "succeeded") {
+      state.studio.release.dryRunRunning = false;
+      updateStudioSidebar();
+    }
+  }
 }

@@ -3,14 +3,30 @@ import { homedir } from "node:os";
 import path from "node:path";
 import { z } from "zod";
 import { ensureConfigDir, getLegacyWebSettingsPath, getWebSettingsPath, pathExists } from "../utils/paths.js";
-import { aiAssistantIds } from "./ai-assistance.js";
+import { isAiAssistantId, type AiAssistantId } from "./ai-assistance.js";
+
+const aiAssistantSchema = z.custom<AiAssistantId>(
+  (value) => typeof value === "string" && isAiAssistantId(value),
+  { message: "Unknown AI assistant." }
+);
 
 export const webSettingsSchema = z.object({
   defaultCheckoutDir: z.string().min(1),
-  aiAssistant: z.enum(aiAssistantIds),
+  aiAssistant: aiAssistantSchema,
   defaultPublishAction: z.enum(["auto", "submit", "release"]),
   playgroundPortStart: z.number().int().min(1).max(65535),
   playgroundPortEnd: z.number().int().min(1).max(65535),
+  playgroundDatabaseMode: z.enum(["auto", "sqlite", "mysql"]),
+  playgroundMysqlHost: z.string().trim().min(1),
+  playgroundMysqlPort: z.number().int().min(1).max(65535),
+  playgroundMysqlUser: z.string().trim().min(1),
+  playgroundMysqlPassword: z.string(),
+  playgroundMysqlDatabasePrefix: z
+    .string()
+    .trim()
+    .regex(/^[A-Za-z0-9_]+$/, "MySQL database prefix can only contain letters, numbers, and underscores.")
+    .min(1)
+    .max(40),
   autoRefreshSeconds: z.number().int().min(0).max(3600),
   confirmDestructiveActions: z.boolean(),
   defaultBumpLevel: z.enum(["patch", "minor", "major"]),
@@ -25,10 +41,16 @@ export function getDefaultCheckoutDir(): string {
 
 export const defaultWebSettings: WebSettings = {
   defaultCheckoutDir: getDefaultCheckoutDir(),
-  aiAssistant: "none",
+  aiAssistant: "wp-studio",
   defaultPublishAction: "auto",
   playgroundPortStart: 9500,
   playgroundPortEnd: 9599,
+  playgroundDatabaseMode: "auto",
+  playgroundMysqlHost: "127.0.0.1",
+  playgroundMysqlPort: 3306,
+  playgroundMysqlUser: "root",
+  playgroundMysqlPassword: "",
+  playgroundMysqlDatabasePrefix: "pressship_playground",
   autoRefreshSeconds: 0,
   confirmDestructiveActions: true,
   defaultBumpLevel: "patch",

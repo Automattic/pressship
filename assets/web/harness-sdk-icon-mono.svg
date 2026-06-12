@@ -1,0 +1,33 @@
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
+  <title id="title">Harness SDK monochrome icon</title>
+  <desc id="desc">A monochrome H-shaped routing harness connected to six ports.</desc>
+  <g stroke="#f2f2f7" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M214 296H286C329 296 350 328 372 360" stroke-width="38" opacity="0.46"/>
+    <path d="M214 512H416" stroke-width="38" opacity="0.46"/>
+    <path d="M214 728H286C329 728 350 696 372 664" stroke-width="38" opacity="0.46"/>
+    <path d="M810 296H738C695 296 674 328 652 360" stroke-width="38" opacity="0.46"/>
+    <path d="M810 512H608" stroke-width="38" opacity="0.46"/>
+    <path d="M810 728H738C695 728 674 696 652 664" stroke-width="38" opacity="0.46"/>
+  </g>
+  <g fill="#f2f2f7">
+    <rect x="318" y="244" width="116" height="536" rx="58"/>
+    <rect x="590" y="244" width="116" height="536" rx="58"/>
+    <rect x="378" y="454" width="268" height="116" rx="58"/>
+  </g>
+  <g fill="#f2f2f7">
+    <circle cx="214" cy="296" r="35" opacity="0.86"/>
+    <circle cx="214" cy="512" r="35" opacity="0.86"/>
+    <circle cx="214" cy="728" r="35" opacity="0.86"/>
+    <circle cx="810" cy="296" r="35" opacity="0.86"/>
+    <circle cx="810" cy="512" r="35" opacity="0.86"/>
+    <circle cx="810" cy="728" r="35" opacity="0.86"/>
+  </g>
+  <g stroke="#f2f2f7" opacity="0.18">
+    <circle cx="214" cy="296" r="58" stroke-width="8"/>
+    <circle cx="214" cy="512" r="58" stroke-width="8"/>
+    <circle cx="214" cy="728" r="58" stroke-width="8"/>
+    <circle cx="810" cy="296" r="58" stroke-width="8"/>
+    <circle cx="810" cy="512" r="58" stroke-width="8"/>
+    <circle cx="810" cy="728" r="58" stroke-width="8"/>
+  </g>
+</svg>
