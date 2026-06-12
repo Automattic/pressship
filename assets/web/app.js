@@ -2029,7 +2029,7 @@ function renderStudioSidebarTabs(activeTab) {
   return `
     <div class="studio-sidebar-tabs ps-segmented" role="tablist" aria-label="Studio sidebar">
       <button class="ps-segmented-option${activeTab === "ai" ? " is-active" : ""}" type="button" role="tab" aria-selected="${activeTab === "ai"}" data-action="studio-sidebar-tab" data-tab="ai">
-        ${renderHarnessIcon({ className: "studio-sidebar-tab-icon", mono: activeTab === "ai" })}
+        <span class="dashicons dashicons-format-chat" aria-hidden="true"></span>
         AI Helper
       </button>
       <button class="ps-segmented-option${activeTab === "release" ? " is-active" : ""}" type="button" role="tab" aria-selected="${activeTab === "release"}" data-action="studio-sidebar-tab" data-tab="release">

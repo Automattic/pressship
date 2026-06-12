@@ -5895,13 +5895,6 @@ td code {
   transition: background 0.12s ease, color 0.12s ease;
 }
 
-.studio-sidebar-tab-icon {
-  flex: 0 0 auto;
-  width: 15px;
-  height: 15px;
-  border-radius: 4px;
-}
-
 .ps-segmented-option:hover {
   color: var(--wp-text);
 }

@@ -45,6 +45,21 @@ const getSession = (prefix: string): Block[] => [
     )
   },
   {
+    command: `${prefix} studio --no-open`,
+    output: (
+      <>
+        <span className={styles.muted}>URL</span>
+        {"        "}http://127.0.0.1:9478/
+        {"\n"}
+        <span className={styles.muted}>Workspace</span>
+        {"  "}editor · Playground · AI · release
+        {"\n"}
+        <span className={styles.muted}>mode</span>
+        {"       "}local only
+      </>
+    )
+  },
+  {
     command: `${prefix} pack ./my-plugin`,
     output: (
       <>
@@ -82,6 +97,12 @@ const getWorkflow = (prefix: string) => [
     title: "Inspect",
     description: "Read local plugin metadata and WordPress.org review state at a glance.",
     command: `${prefix} info ./my-plugin`
+  },
+  {
+    icon: faTerminal,
+    title: "Studio",
+    description: "Open the local editor, terminal, Playground preview, AI helper, and release sidebar.",
+    command: `${prefix} studio`
   },
   {
     icon: faBoxArchive,

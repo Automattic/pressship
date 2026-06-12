@@ -609,7 +609,7 @@
   padding: 0.75rem;
   margin: 0;
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 0;
   border: 1px solid var(--pp-border);
   border-radius: var(--pp-radius-xl);
@@ -623,8 +623,8 @@
   content: "";
   position: absolute;
   top: 3.45rem;
-  left: calc(12.5% + 0.75rem);
-  right: calc(12.5% + 0.75rem);
+  left: calc(10% + 0.75rem);
+  right: calc(10% + 0.75rem);
   height: 1px;
   background: linear-gradient(to right, transparent, var(--pp-border-strong), transparent);
   pointer-events: none;
@@ -965,11 +965,11 @@
     border-right: 0;
   }
 
-  .workflowCard:nth-child(odd) {
+  .workflowCard:nth-child(odd):not(:last-child) {
     border-right: 1px solid var(--pp-border);
   }
 
-  .workflowCard:nth-child(-n + 2) {
+  .workflowCard:nth-child(-n + 4) {
     border-bottom: 1px solid var(--pp-border);
   }
 

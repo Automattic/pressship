@@ -43,6 +43,8 @@ For the full experience, have these available:
 
 ## Dashboard
 
+![Pressship Studio dashboard overview](/img/studio/studio-dashboard.png)
+
 The Dashboard is the starting point. It shows local plugins, WordPress.org plugins, running Playgrounds, account state, and AI assistant state.
 
 Use it when you want to:
@@ -77,6 +79,8 @@ The default checkout directory is configured in Settings and defaults to `~/.pre
 
 ## Opening a Workspace
 
+![Pressship Studio workspace with file tree, editor, terminal, and AI sidebar](/img/studio/studio-workspace.png)
+
 Use the Studio screen to open a tracked local plugin or choose a local plugin folder. A local workspace includes:
 
 - a file tree for editable plugin files;
@@ -104,6 +108,8 @@ If you switch files with unsaved changes, Studio asks before discarding the curr
 
 ## Plugin Check
 
+![Plugin Check notes shown inside Pressship Studio](/img/studio/studio-plugin-check.png)
+
 The Check action runs WordPress.org Plugin Check for the opened local plugin. Results are saved in Studio state and shown as:
 
 - summary counts for errors, warnings, and info;
@@ -116,6 +122,8 @@ Running Plugin Check again replaces the saved results. Saving or accepting AI pa
 
 ## WordPress Playground
 
+![WordPress Playground preview controls inside Pressship Studio](/img/studio/studio-playground.png)
+
 The Play action starts a local WordPress Playground server for the opened plugin and streams output into the Studio terminal.
 
 Studio provides tabs for:
@@ -123,6 +131,8 @@ Studio provides tabs for:
 - `Home`, the public site preview;
 - `WP Admin`, with `admin` / `password` shown when a Playground is running;
 - the editor tab for the selected file.
+
+![Playground WordPress version chooser for latest or Tested up to](/img/studio/studio-playground-version-modal.png)
 
 When a plugin declares a `Tested up to` version, Studio asks whether to run the latest WordPress or the tested version. Very old WordPress versions may be blocked because they are not supported by the Playground runtime.
 
@@ -135,6 +145,8 @@ Playground settings include:
 In `auto` mode, Studio uses SQLite for supported WordPress versions and can use MySQL for legacy versions. When managed MySQL is needed, Pressship can use Docker or OrbStack.
 
 ## AI Assistance
+
+![AI assistance sidebar inside Pressship Studio](/img/studio/studio-ai-assistance.png)
 
 AI assistance is configured in Settings. Studio detects available Harness providers and shows each provider's status.
 
@@ -156,6 +168,8 @@ AI assistance is most useful after running Plugin Check because the prompt inclu
 
 ## Release Management
 
+![Release management funnel inside Pressship Studio](/img/studio/studio-release-management.png)
+
 Studio has release controls in two places:
 
 - the Release Management dashboard view for all local plugins;
@@ -174,6 +188,10 @@ The Release sidebar can:
 - inspect version state;
 - run dry-run submit, dry-run release, or auto dry-run;
 - confirm a real submit or release after a successful dry run.
+
+![Release tag management step with trunk, tags, and switch actions](/img/studio/studio-release-tags.png)
+
+The Tags step lists `trunk` and known SVN tags, marks the currently checked-out ref, and flags local-only uncommitted tags. Use Switch to move the editable working copy between `trunk` and a selected `tags/<version>` ref; after the switch completes, Studio reloads the file tree and editor from the selected ref.
 
 Studio refuses to delete remote-published tags. Published tags must be handled through explicit SVN workflows outside the local-only tag cleanup path.
 
@@ -195,6 +213,8 @@ Confirmed publish approvals expire after about 20 minutes. If the plugin version
 For SVN releases, Studio uses the same generated WordPress.org SVN password flow as the CLI. If credentials are missing, run a CLI release once or save credentials before confirming releases from Studio.
 
 ## Settings
+
+![AI assistant provider settings in Pressship Studio](/img/studio/studio-settings-ai.png)
 
 Settings are stored per user in the Pressship config directory.
 
