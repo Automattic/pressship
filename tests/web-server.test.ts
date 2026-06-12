@@ -304,6 +304,70 @@ describe("studio server", () => {
     }
   });
 
+  it("runs Plugin Check against a staged copy so saved files are not mutated", async () => {
+    process.env.PRESSSHIP_CONFIG_DIR = await mkdtemp(path.join(tmpdir(), "pressship-studio-config-"));
+    const pluginRoot = await samplePlugin();
+    const pluginFile = path.join(pluginRoot, "example-plugin.php");
+    const originalContent = await readFile(pluginFile, "utf8");
+    let checkedTarget = "";
+
+    const server = await startWebServer({
+      port: 0,
+      noOpen: true,
+      dependencies: {
+        runPluginCheck: async (target) => {
+          checkedTarget = target;
+          await writeFile(
+            path.join(target, "example-plugin.php"),
+            originalContent.replace("Version: 1.2.3", "Version: 9.9.9"),
+            "utf8"
+          );
+          return {
+            skipped: false,
+            available: true,
+            findings: [
+              {
+                severity: "error",
+                code: "example.mutated_target",
+                message: "Checker target was mutated.",
+                file: path.join(target, "example-plugin.php"),
+                line: 4
+              }
+            ]
+          };
+        }
+      }
+    });
+
+    try {
+      const added = await addLocalPlugin(server, pluginRoot);
+      const job = await fetch(new URL("/api/jobs", server.url), {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Pressship-Token": server.token
+        },
+        body: JSON.stringify({
+          type: "check",
+          localId: added.id
+        })
+      }).then((response) => response.json());
+
+      const result = await waitForJobResult(server.jobs, job.id);
+
+      expect(checkedTarget).not.toBe(pluginRoot);
+      expect(existsSync(checkedTarget)).toBe(false);
+      expect(await readFile(pluginFile, "utf8")).toBe(originalContent);
+      expect(result.findings[0]).toMatchObject({
+        code: "example.mutated_target",
+        file: "example-plugin.php",
+        line: 4
+      });
+    } finally {
+      await server.close();
+    }
+  });
+
   it("reserves a different Playground port for each concurrent plugin start", async () => {
     process.env.PRESSSHIP_CONFIG_DIR = await mkdtemp(path.join(tmpdir(), "pressship-studio-config-"));
     const firstPluginRoot = await samplePlugin();

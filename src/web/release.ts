@@ -195,11 +195,6 @@ export async function switchReleaseTag(
   const project = await discoverPluginProject(projectPath.rootDir);
   const slug = project.slug;
 
-  const refUrl =
-    tagName === "trunk"
-      ? `https://plugins.svn.wordpress.org/${slug}/trunk`
-      : `https://plugins.svn.wordpress.org/${slug}/tags/${tagName}`;
-
   // Switching the working copy means changing which URL the *plugin rootDir*
   // (i.e. the working trunk folder discovered by resolvePluginProjectPath)
   // tracks. We never switch the `tags/<name>/` subfolder — that's just the
@@ -209,15 +204,30 @@ export async function switchReleaseTag(
     throw new ReleaseError(`Working copy ${workingCopy} does not exist on disk.`, 404);
   }
 
+  const localTagDir = tagName === "trunk" ? undefined : path.join(svnRootDir, "tags", tagName);
+  const remoteTagReady = tagName === "trunk" ? true : await remoteTagExists(slug, tagName);
+
   if (tagName !== "trunk") {
-    const localTagDir = path.join(svnRootDir, "tags", tagName);
-    if (!pathExists(localTagDir) && !(await remoteTagExists(slug, tagName))) {
+    if (localTagDir && pathExists(localTagDir) && !remoteTagReady) {
+      throw new ReleaseError(
+        `Tag ${tagName} exists locally but is not published on WordPress.org SVN yet. Run a dry-run release to publish it; switching is only available for published tags.`,
+        409,
+        "local_tag_not_switchable"
+      );
+    }
+
+    if (!localTagDir || (!pathExists(localTagDir) && !remoteTagReady)) {
       throw new ReleaseError(
         `Tag ${tagName} does not exist locally or on WordPress.org SVN. Create it first.`,
         404
       );
     }
   }
+
+  const refUrl =
+    tagName === "trunk"
+      ? `https://plugins.svn.wordpress.org/${slug}/trunk`
+      : `https://plugins.svn.wordpress.org/${slug}/tags/${tagName}`;
 
   const status = await readSvnStatus(workingCopy, svnRootDir);
   const shouldRevertBeforeSwitch = options.conflictResolution === "revert" || (!options.conflictResolution && status.trim());
@@ -331,7 +341,7 @@ async function requireLocalSvnRoot(pluginPath: string): Promise<string> {
   const svnRootDir = projectPath.svnRootDir;
   if (!svnRootDir || !pathExists(svnRootDir)) {
     throw new ReleaseError(
-      "This action requires a local WordPress.org SVN working copy. Clone the plugin with `pressship get` first.",
+      "Release requires an existing WordPress.org SVN working copy. If this is a first-time plugin, submit it first. For an approved plugin, clone it with `pressship get <slug>` and try again.",
       409
     );
   }

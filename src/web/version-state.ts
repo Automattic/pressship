@@ -122,6 +122,11 @@ async function readSvnTags(
   slug: string,
   svnRootDir: string | undefined
 ): Promise<{ tags?: string[]; source: VersionState["svnTagsSource"] }> {
+  const remoteTags = await readRemoteSvnTags(slug);
+  if (remoteTags) {
+    return { tags: remoteTags, source: "remote" };
+  }
+
   if (svnRootDir) {
     const tagsPath = path.join(svnRootDir, "tags");
     if (pathExists(tagsPath)) {
@@ -133,8 +138,12 @@ async function readSvnTags(
     }
   }
 
+  return { source: "unknown" };
+}
+
+async function readRemoteSvnTags(slug: string): Promise<string[] | undefined> {
   if (!(await isSvnAvailable())) {
-    return { source: "unknown" };
+    return undefined;
   }
 
   const result = await execa("svn", ["list", `https://plugins.svn.wordpress.org/${slug}/tags`], {
@@ -144,17 +153,14 @@ async function readSvnTags(
   });
 
   if (result.exitCode !== 0) {
-    return { source: "unknown" };
+    return undefined;
   }
 
-  return {
-    tags: result.stdout
-      .split(/\r?\n/)
-      .map((line) => line.replace(/\/$/, "").trim())
-      .filter(Boolean)
-      .sort(compareVersions),
-    source: "remote"
-  };
+  return result.stdout
+    .split(/\r?\n/)
+    .map((line) => line.replace(/\/$/, "").trim())
+    .filter(Boolean)
+    .sort(compareVersions);
 }
 
 function latestVersion(values: string[]): string | undefined {

@@ -11,9 +11,11 @@ void import("/vendor/marked.esm.js")
       breaks: true
     });
     markdownParser = (markdown) => marked.parse(markdown, { async: false });
+    refreshStudioAiMarkdownIfReady();
   })
   .catch(() => {
     markdownParser = basicMarkdownToHtml;
+    refreshStudioAiMarkdownIfReady();
   });
 
 const MARKDOWN_ALLOWED_TAGS = new Set([
@@ -120,6 +122,8 @@ function clampStudioLayoutValue(key, value) {
 }
 
 const STUDIO_SIDEBAR_TAB_KEY = "pressship.studio.sidebar.tab.v1";
+const STUDIO_PANEL_STORAGE_KEY = "pressship.studio.panels.v1";
+const STUDIO_THEME_STORAGE_KEY = "pressship.studio.theme.v1";
 
 function loadStudioSidebarTab(pluginKey) {
   if (!pluginKey) {
@@ -145,6 +149,60 @@ function saveStudioSidebarTab(pluginKey, tab) {
   } catch {
     // ignore
   }
+}
+
+function loadStudioPanelState() {
+  try {
+    const raw = typeof localStorage !== "undefined" ? localStorage.getItem(STUDIO_PANEL_STORAGE_KEY) : null;
+    const parsed = raw ? JSON.parse(raw) : {};
+    return normalizeStudioPanelState(parsed);
+  } catch {
+    return normalizeStudioPanelState();
+  }
+}
+
+function normalizeStudioPanelState(value = {}) {
+  return {
+    files: value.files !== false,
+    sidebar: value.sidebar !== false
+  };
+}
+
+function saveStudioPanelState(panels) {
+  try {
+    localStorage.setItem(STUDIO_PANEL_STORAGE_KEY, JSON.stringify(normalizeStudioPanelState(panels)));
+  } catch {
+    // ignore
+  }
+}
+
+function normalizeStudioTheme(value) {
+  return value === "light" ? "light" : "dark";
+}
+
+function loadStudioTheme() {
+  try {
+    const raw = typeof localStorage !== "undefined" ? localStorage.getItem(STUDIO_THEME_STORAGE_KEY) : null;
+    return normalizeStudioTheme(raw);
+  } catch {
+    return "dark";
+  }
+}
+
+function saveStudioTheme(theme) {
+  try {
+    localStorage.setItem(STUDIO_THEME_STORAGE_KEY, normalizeStudioTheme(theme));
+  } catch {
+    // ignore
+  }
+}
+
+function studioTheme() {
+  return normalizeStudioTheme(state.studio.theme);
+}
+
+function studioMonacoTheme() {
+  return studioTheme() === "light" ? "vs" : "vs-dark";
 }
 
 function createInitialStudioRelease() {
@@ -359,6 +417,7 @@ const state = {
     playgroundUrl: "",
     playgroundUrls: null,
     activeTab: "editor",
+    openFiles: [],
     terminalOpen: true,
     collapsedFolders: new Set(),
     terminal: [],
@@ -374,6 +433,8 @@ const state = {
     editorKind: null,
     editorModels: [],
     layout: loadStudioLayout(),
+    panels: loadStudioPanelState(),
+    theme: loadStudioTheme(),
     sidebarTab: "ai",
     playgroundVersionModal: null,
     release: createInitialStudioRelease(),
@@ -423,6 +484,27 @@ const els = {
 const isMac =
   typeof navigator !== "undefined" && /Mac|iPhone|iPad|iPod/i.test(navigator.platform || "");
 let monacoPromise = null;
+const VIEW_ROUTE_PATHS = {
+  dashboard: "/dashboard",
+  studio: "/studio",
+  remote: "/wordpress.org",
+  local: "/local",
+  release: "/release",
+  settings: "/settings"
+};
+const ROUTE_VIEW_ALIASES = {
+  "": "dashboard",
+  dashboard: "dashboard",
+  studio: "studio",
+  "wordpress.org": "remote",
+  remote: "remote",
+  local: "local",
+  release: "release",
+  settings: "settings"
+};
+let applyingLocationRoute = false;
+let initialRouteLoaderVisible = false;
+
 document.querySelectorAll("[data-kbd-mod]").forEach((node) => {
   node.textContent = isMac ? "⌘" : "Ctrl+";
 });
@@ -525,6 +607,242 @@ els.commandInput?.addEventListener("input", () => {
   renderCommandPalette();
 });
 
+window.addEventListener("popstate", () => {
+  void applyLocationRoute({ replaceRoute: true });
+});
+
+function normalizeViewId(view) {
+  return Object.prototype.hasOwnProperty.call(VIEW_ROUTE_PATHS, view) ? view : "dashboard";
+}
+
+function normalizeBrowserPath(pathname = window.location.pathname) {
+  const trimmed = pathname.replace(/\/+$/, "");
+  return trimmed || "/";
+}
+
+function shouldShowInitialRouteLoader() {
+  const path = normalizeBrowserPath();
+  return path !== "/" && path !== VIEW_ROUTE_PATHS.dashboard;
+}
+
+function showInitialRouteLoader() {
+  if (!shouldShowInitialRouteLoader() || initialRouteLoaderVisible) {
+    return;
+  }
+  initialRouteLoaderVisible = true;
+  document.body.classList.add("is-initial-route-loading");
+  const loader = document.createElement("div");
+  loader.id = "initial-route-loader";
+  loader.className = "ps-initial-route-loader";
+  loader.setAttribute("role", "status");
+  loader.setAttribute("aria-live", "polite");
+  loader.innerHTML = `
+    <div class="ps-initial-route-loader-card">
+      <img src="/brand/pressship-symbol.png" alt="" />
+      <span class="dashicons dashicons-update" aria-hidden="true"></span>
+      <strong>Loading Pressship Studio</strong>
+      <p>Restoring the requested page...</p>
+    </div>
+  `;
+  document.body.append(loader);
+}
+
+function hideInitialRouteLoader() {
+  if (!initialRouteLoaderVisible) {
+    return;
+  }
+  initialRouteLoaderVisible = false;
+  document.body.classList.remove("is-initial-route-loading");
+  document.getElementById("initial-route-loader")?.remove();
+}
+
+function decodeRouteSegment(segment) {
+  try {
+    return decodeURIComponent(segment);
+  } catch {
+    return segment;
+  }
+}
+
+function encodeRouteSegments(value) {
+  return String(value ?? "")
+    .split("/")
+    .filter(Boolean)
+    .map((segment) => encodeURIComponent(segment))
+    .join("/");
+}
+
+function parseLocationRoute(pathname = window.location.pathname) {
+  const segments = pathname
+    .split("/")
+    .filter(Boolean)
+    .map((segment) => decodeRouteSegment(segment));
+  const head = segments[0] ?? "";
+
+  if (head === "studio") {
+    return {
+      view: "studio",
+      studio: {
+        project: segments[1] ?? "",
+        filePath: segments.slice(2).join("/")
+      }
+    };
+  }
+
+  return {
+    view: ROUTE_VIEW_ALIASES[head] ?? "dashboard"
+  };
+}
+
+function applyActiveViewShell(view) {
+  const nextView = normalizeViewId(view);
+  state.activeView = nextView;
+  document.body.dataset.activeView = nextView;
+  document.querySelectorAll(".view").forEach((node) => node.classList.remove("is-active"));
+  document.getElementById(`view-${nextView}`)?.classList.add("is-active");
+  document
+    .querySelectorAll("#adminmenu li")
+    .forEach((node) => node.classList.remove("wp-has-current-submenu"));
+  document
+    .querySelector(`#adminmenu li[data-view="${nextView}"]`)
+    ?.classList.add("wp-has-current-submenu");
+  return nextView;
+}
+
+function primeInitialRouteState(route) {
+  const nextView = applyActiveViewShell(route.view);
+  if (nextView !== "studio" || !route.studio?.project || state.studio.id) {
+    return;
+  }
+
+  const filePath = route.studio.filePath;
+  state.studio = {
+    ...state.studio,
+    scope: null,
+    id: route.studio.project,
+    plugin: { slug: route.studio.project, name: route.studio.project },
+    files: [],
+    selectedFile: filePath
+      ? {
+          path: filePath,
+          name: filePath.split("/").pop() ?? filePath,
+          directory: filePath.includes("/") ? filePath.split("/").slice(0, -1).join("/") : "",
+          size: 0
+        }
+      : null,
+    fileContent: "",
+    draftContent: "",
+    readOnly: true,
+    dirty: false,
+    loading: true,
+    running: false,
+    checking: false,
+    jobId: null,
+    checkJobId: null,
+    activeTab: "editor",
+    openFiles: filePath ? [filePath] : [],
+    terminal: [`Opening ${route.studio.project} from URL...`],
+    collapsedFolders: new Set(),
+    pendingConfirms: new Map()
+  };
+}
+
+function studioProjectRouteSegment() {
+  const plugin = state.studio.plugin;
+  const localPlugin = state.local.find((item) => item.id === state.studio.id);
+  return plugin?.slug || localPlugin?.slug || plugin?.name || state.studio.id || "";
+}
+
+function studioRoutePathForState() {
+  if (!state.studio.id) {
+    return VIEW_ROUTE_PATHS.studio;
+  }
+  const project = studioProjectRouteSegment();
+  if (!project) {
+    return VIEW_ROUTE_PATHS.studio;
+  }
+  const filePath =
+    state.studio.activeTab === "editor" && state.studio.selectedFile?.path
+      ? encodeRouteSegments(state.studio.selectedFile.path)
+      : "";
+  const projectPath = encodeURIComponent(project);
+  return filePath ? `/studio/${projectPath}/${filePath}` : `/studio/${projectPath}`;
+}
+
+function routePathForState() {
+  const view = normalizeViewId(state.activeView);
+  return view === "studio" ? studioRoutePathForState() : VIEW_ROUTE_PATHS[view];
+}
+
+function updateRouteFromState(options = {}) {
+  if (applyingLocationRoute && !options.force) {
+    return;
+  }
+  const nextPath = routePathForState();
+  if (normalizeBrowserPath(nextPath) === normalizeBrowserPath()) {
+    return;
+  }
+  const method = options.replace ? "replaceState" : "pushState";
+  history[method]({ pressshipView: state.activeView }, "", nextPath);
+}
+
+function resolveStudioRouteProject(project) {
+  if (!project) {
+    return null;
+  }
+  const normalizedProject = project.toLowerCase();
+  const matchesProject = (candidate) => {
+    if (!candidate) {
+      return false;
+    }
+    return candidate === project || candidate.toLowerCase() === normalizedProject;
+  };
+  const localPlugin = state.local.find((plugin) =>
+    [plugin.slug, plugin.id, plugin.name].some((candidate) => matchesProject(candidate))
+  );
+  if (localPlugin) {
+    return { scope: "local", id: localPlugin.id };
+  }
+
+  const remotePlugin = state.remote.find((plugin) =>
+    [plugin.slug, plugin.name].some((candidate) => matchesProject(candidate))
+  );
+  return { scope: "remote", id: remotePlugin?.slug || project };
+}
+
+async function applyLocationRoute(options = {}) {
+  const route = parseLocationRoute();
+  applyingLocationRoute = true;
+  try {
+    if (route.view === "studio") {
+      if (route.studio?.project) {
+        const target = resolveStudioRouteProject(route.studio.project);
+        if (target) {
+          await openStudio(target.scope, target.id, {
+            filePath: route.studio.filePath,
+            updateRoute: false
+          });
+        } else {
+          await showView("studio", { updateRoute: false });
+          renderStudio();
+        }
+      } else {
+        await showView("studio", { updateRoute: false });
+        renderStudio();
+      }
+    } else {
+      await showView(route.view, { updateRoute: false });
+    }
+  } finally {
+    applyingLocationRoute = false;
+  }
+
+  if (options.replaceRoute !== false) {
+    updateRouteFromState({ replace: true, force: true });
+  }
+}
+
+showInitialRouteLoader();
 void boot();
 
 async function boot() {
@@ -532,13 +850,15 @@ async function boot() {
     state.bootstrap = await api("/api/bootstrap");
     refreshTokenFromBootstrap(state.bootstrap);
   } catch (error) {
+    hideInitialRouteLoader();
     notice(`Could not load bootstrap state: ${error.message}`, "error");
     return;
   }
   state.settings = state.bootstrap.settings ?? null;
   state.playgrounds = state.bootstrap.playgrounds ?? [];
   state.aiAssistance.harnesses = state.bootstrap.aiHarnesses ?? [];
-  document.body.dataset.activeView = state.activeView;
+  const initialRoute = parseLocationRoute();
+  primeInitialRouteState(initialRoute);
   renderAccount();
   for (const job of state.bootstrap.jobs ?? []) {
     upsertJob(job);
@@ -549,8 +869,16 @@ async function boot() {
   renderDashboard();
   renderStudio();
   renderPlaygroundsMenu();
+  if (state.activeView === "release") {
+    void loadReleaseBoard();
+  }
   void loadAiAssistance();
-  await Promise.all([loadRemote(), loadLocal()]);
+  try {
+    await Promise.all([loadRemote(), loadLocal()]);
+    await applyLocationRoute({ replaceRoute: true });
+  } finally {
+    hideInitialRouteLoader();
+  }
 }
 
 function renderAccount() {
@@ -598,6 +926,10 @@ async function runAction(name, element) {
         await selectStudioFile(element.dataset.path);
         return;
 
+      case "studio-close-file-tab":
+        await closeStudioFileTab(element.dataset.path);
+        return;
+
       case "studio-toggle-folder":
         toggleStudioFolder(element.dataset.folder);
         return;
@@ -606,12 +938,28 @@ async function runAction(name, element) {
         toggleStudioTerminal();
         return;
 
+      case "studio-toggle-files":
+        toggleStudioPanel("files");
+        return;
+
+      case "studio-toggle-sidebar":
+        toggleStudioPanel("sidebar");
+        return;
+
+      case "studio-open-sidebar-tab":
+        openStudioSidebarTab(element.dataset.tab);
+        return;
+
       case "studio-save":
         await saveStudioFile();
         return;
 
       case "studio-check":
         await runStudioCheck();
+        return;
+
+      case "studio-toggle-theme":
+        toggleStudioTheme();
         return;
 
       case "studio-check-note":
@@ -1106,6 +1454,7 @@ async function openStudio(scope, id, options = {}) {
     playgroundUrl: "",
     playgroundUrls: null,
     activeTab: "editor",
+    openFiles: [],
     terminalOpen: true,
     collapsedFolders: new Set(),
     terminal: [`Pressship Studio opened for ${scope === "local" ? "local plugin" : "WordPress.org plugin"} ${id}.`],
@@ -1121,13 +1470,15 @@ async function openStudio(scope, id, options = {}) {
     editorKind: null,
     editorModels: [],
     layout: state.studio.layout ?? loadStudioLayout(),
+    panels: normalizeStudioPanelState(state.studio.panels ?? loadStudioPanelState()),
+    theme: normalizeStudioTheme(state.studio.theme ?? loadStudioTheme()),
     sidebarTab,
     playgroundVersionModal: null,
     release: createInitialStudioRelease(),
     pendingConfirms: new Map()
   };
   saveStudioSidebarTab(pluginKey, sidebarTab);
-  showView("studio");
+  await showView("studio", { updateRoute: false });
   renderStudio();
   if (scope === "local" && sidebarTab === "release") {
     void loadStudioReleaseTags();
@@ -1146,26 +1497,45 @@ async function openStudio(scope, id, options = {}) {
       state.studio.files = result.files ?? [];
       applyStudioCheckState(checkState.state);
       renderStudio();
-      const initialFile = chooseInitialStudioFile(state.studio.files, state.studio.plugin?.slug);
+      const requestedFile = options.filePath
+        ? state.studio.files.find((file) => file.path === options.filePath)
+        : null;
+      if (options.filePath && !requestedFile) {
+        appendStudioTerminal(`Route file not found: ${options.filePath}`, "warning");
+      }
+      const initialFile = requestedFile ?? chooseInitialStudioFile(state.studio.files, state.studio.plugin?.slug);
       if (initialFile) {
-        await selectStudioFile(initialFile.path);
+        await selectStudioFile(initialFile.path, {
+          updateRoute: options.updateRoute,
+          replaceRoute: options.replaceRoute
+        });
       } else {
         state.studio.draftContent = "";
         remountStudioEditorIfNeeded();
+        if (options.updateRoute !== false) {
+          updateRouteFromState({ replace: options.replaceRoute });
+        }
       }
     } else {
       state.studio.files = [{ path: "readme.txt", name: "readme.txt", directory: "", size: detail.readme?.length ?? 0 }];
       state.studio.selectedFile = state.studio.files[0];
+      state.studio.openFiles = ["readme.txt"];
       state.studio.fileContent = detail.readme ?? "No hosted readme.txt could be loaded.";
       state.studio.draftContent = state.studio.fileContent;
       state.studio.readOnly = true;
       renderStudio();
       remountStudioEditorIfNeeded();
+      if (options.updateRoute !== false) {
+        updateRouteFromState({ replace: options.replaceRoute });
+      }
     }
   } catch (error) {
     state.studio.loading = false;
     appendStudioTerminal(error.message, "error");
     renderStudio();
+    if (options.updateRoute !== false) {
+      updateRouteFromState({ replace: options.replaceRoute });
+    }
   }
 }
 
@@ -1188,6 +1558,7 @@ async function selectStudioFile(relativePath, options = {}) {
     return;
   }
 
+  ensureStudioFileTab(relativePath);
   state.studio.selectedFile = state.studio.files.find((file) => file.path === relativePath) ?? {
     path: relativePath,
     name: relativePath.split("/").pop() ?? relativePath,
@@ -1200,6 +1571,9 @@ async function selectStudioFile(relativePath, options = {}) {
   state.studio.activeTab = "editor";
   renderStudio();
   remountStudioEditorIfNeeded();
+  if (options.updateRoute !== false) {
+    updateRouteFromState({ replace: options.replaceRoute });
+  }
 
   try {
     const result = await api(
@@ -1215,6 +1589,17 @@ async function selectStudioFile(relativePath, options = {}) {
     appendStudioTerminal(error.message, "error");
     renderStudio();
   }
+}
+
+function ensureStudioFileTab(relativePath) {
+  if (!relativePath) {
+    return;
+  }
+  const openFiles = Array.isArray(state.studio.openFiles) ? state.studio.openFiles : [];
+  if (!openFiles.includes(relativePath)) {
+    openFiles.push(relativePath);
+  }
+  state.studio.openFiles = openFiles;
 }
 
 async function saveStudioFile() {
@@ -1472,6 +1857,7 @@ async function selectStudioAiChange(filePath) {
   state.studio.activeTab = "editor";
   renderStudio();
   remountStudioEditorIfNeeded();
+  updateRouteFromState();
   updateStudioAiSidebar();
 }
 
@@ -1571,6 +1957,35 @@ function renderStudio() {
         ? "WordPress.org plugin"
         : "Choose a plugin from WordPress.org or Local Library.";
 
+  if (state.studio.loading && !state.studio.scope && state.studio.id) {
+    const fileLabel = state.studio.selectedFile?.path
+      ? `Restoring ${state.studio.selectedFile.path}.`
+      : "Restoring the workspace.";
+    els.studio.innerHTML = `
+      <div class="studio-root studio-empty-root">
+        <div class="studio-empty-state" aria-label="Opening Studio workspace">
+          <section class="studio-empty-copy">
+            <span class="studio-empty-kicker">
+              <span class="dashicons dashicons-editor-code" aria-hidden="true"></span>
+              Pressship Studio
+            </span>
+            <h1>Opening ${escapeHtml(title)}</h1>
+            <p class="studio-empty-subtitle">${escapeHtml(fileLabel)}</p>
+          </section>
+          <section class="studio-empty-panel" aria-label="Loading workspace">
+            ${loadingShell("Loading Studio workspace...")}
+          </section>
+          <div class="studio-empty-footer">
+            <span class="dashicons dashicons-update" aria-hidden="true"></span>
+            Matching the URL to a local or WordPress.org plugin.
+          </div>
+        </div>
+      </div>
+    `;
+    updateStudioControls();
+    return;
+  }
+
   if (!state.studio.id) {
     const pickerOptions = studioPickerOptions();
     const pickerDisabled = pickerOptions.length ? "" : "disabled";
@@ -1635,20 +2050,31 @@ function renderStudio() {
   const fileList = state.studio.files.length
     ? renderStudioFileTree(buildStudioFileTree(state.studio.files))
     : `<p class="studio-muted">No editable text files found.</p>`;
-  const editorTabLabel = state.studio.selectedFile?.path ?? "Editor";
   const playgroundPort = state.studio.playgroundUrl ? new URL(state.studio.playgroundUrl).port : "";
+  const panels = normalizeStudioPanelState(state.studio.panels);
 
   els.studio.innerHTML = `
-    <div class="studio-root${state.studio.terminalOpen ? " has-terminal" : ""}">
+    <div class="studio-root${state.studio.terminalOpen ? " has-terminal" : ""}${panels.files ? " has-files" : " is-files-collapsed"}${panels.sidebar ? " has-secondary-sidebar" : " is-secondary-sidebar-collapsed"}" data-theme="${escapeAttr(studioTheme())}">
       <header class="studio-titlebar">
         <div class="studio-title">
           <strong>${escapeHtml(title)}</strong>
           <span>${escapeHtml(source)}</span>
         </div>
         <div class="studio-title-actions">
+          <button class="studio-layout-button${panels.files ? " is-active" : ""}" type="button" data-action="studio-toggle-files" aria-pressed="${panels.files ? "true" : "false"}" title="${panels.files ? "Hide Explorer" : "Show Explorer"}">
+            <span class="dashicons dashicons-align-left" aria-hidden="true"></span>
+          </button>
+          ${renderStudioPlayButton()}
+          <span class="studio-preview-state${state.studio.running ? " is-loading" : state.studio.playgroundUrl ? " is-ready" : ""}">
+            <span aria-hidden="true"></span>
+            ${escapeHtml(studioPreviewStateLabel())}
+          </span>
           <button class="studio-icon-button" type="button" data-action="studio-toggle-terminal" aria-pressed="${state.studio.terminalOpen ? "true" : "false"}" title="${state.studio.terminalOpen ? "Hide terminal" : "Show terminal"}">
             <span class="dashicons dashicons-editor-kitchensink" aria-hidden="true"></span>
             <span>Terminal</span>
+          </button>
+          <button class="studio-layout-button${panels.sidebar ? " is-active" : ""}" type="button" data-action="studio-toggle-sidebar" aria-pressed="${panels.sidebar ? "true" : "false"}" title="${panels.sidebar ? "Hide Secondary Side Bar" : "Show Secondary Side Bar"}">
+            <span class="dashicons dashicons-align-right" aria-hidden="true"></span>
           </button>
           <button class="studio-action-button" type="button" data-action="studio-save" id="studio-save-button" disabled>
             <span class="dashicons dashicons-saved" aria-hidden="true"></span>
@@ -1658,37 +2084,31 @@ function renderStudio() {
             <span class="dashicons dashicons-yes-alt" aria-hidden="true"></span>
             Check
           </button>
+          ${renderStudioThemeToggle()}
         </div>
       </header>
       <div class="studio-main">
-        <aside class="studio-files" aria-label="Plugin files">
-          <div class="studio-file-list">${fileList}</div>
-        </aside>
-        ${renderStudioResizer("files", "h", { label: "files panel" })}
+        ${renderStudioActivityBar(panels)}
+        ${
+          panels.files
+            ? `<aside class="studio-files" aria-label="Explorer">
+                <header class="studio-pane-header">
+                  <strong>Explorer</strong>
+                  <button class="studio-pane-action" type="button" data-action="studio-toggle-files" aria-label="Hide Explorer" title="Hide Explorer">
+                    <span class="dashicons dashicons-no-alt" aria-hidden="true"></span>
+                  </button>
+                </header>
+                <div class="studio-file-list">${fileList}</div>
+              </aside>
+              ${renderStudioResizer("files", "h", { label: "Explorer" })}`
+            : ""
+        }
         <section class="studio-workbench" aria-label="Studio editor">
           <div class="studio-tabs" aria-label="Studio tabs and Playground controls">
             <div class="studio-tablist" role="tablist" aria-label="Studio tabs">
-              <button type="button" role="tab" aria-selected="${state.studio.activeTab === "editor" ? "true" : "false"}" class="studio-tab-button studio-editor-tab${state.studio.activeTab === "editor" ? " is-active" : ""}" data-action="studio-tab" data-tab="editor">
-                <span class="dashicons ${studioFileIcon(editorTabLabel)}" aria-hidden="true"></span>
-                <span>${escapeHtml(editorTabLabel)}</span>
-                ${state.studio.dirty ? `<em aria-label="Unsaved changes"></em>` : ""}
-              </button>
-              <button type="button" role="tab" aria-selected="${state.studio.activeTab === "home" ? "true" : "false"}" class="studio-tab-button studio-preview-tab${state.studio.activeTab === "home" ? " is-active" : ""}" data-action="studio-tab" data-tab="home">
-                <span class="dashicons dashicons-admin-home" aria-hidden="true"></span>
-                <span>Home</span>
-                ${playgroundPort ? `<small>${escapeHtml(`:${playgroundPort}`)}</small>` : ""}
-              </button>
-              <button type="button" role="tab" aria-selected="${state.studio.activeTab === "admin" ? "true" : "false"}" class="studio-tab-button studio-preview-tab${state.studio.activeTab === "admin" ? " is-active" : ""}" data-action="studio-tab" data-tab="admin">
-                <span class="dashicons dashicons-admin-site-alt3" aria-hidden="true"></span>
-                <span>WP Admin</span>
-                ${state.studio.playgroundUrl ? `<small>admin/password</small>` : ""}
-              </button>
+              ${renderStudioPinnedPreviewTabs(playgroundPort)}
+              ${renderStudioFileTabs()}
             </div>
-            ${renderStudioPlayButton()}
-            <span class="studio-preview-state${state.studio.running ? " is-loading" : state.studio.playgroundUrl ? " is-ready" : ""}">
-              <span aria-hidden="true"></span>
-              ${escapeHtml(studioPreviewStateLabel())}
-            </span>
             <span class="studio-tab-spacer"></span>
             <span id="studio-editor-status">${escapeHtml(studioEditorStatusLabel())}</span>
           </div>
@@ -1706,21 +2126,200 @@ function renderStudio() {
                   <div id="studio-terminal-output" class="studio-terminal-output">
                     ${renderStudioTerminal()}
                   </div>
-                </section>`
+            </section>`
               : ""
           }
         </section>
-        ${renderStudioResizer("ai", "h", { invert: true, label: "AI panel" })}
-        <aside class="studio-ai" id="studio-ai" aria-label="Studio AI chat">
-          ${renderStudioAiSidebar()}
-        </aside>
+        ${
+          panels.sidebar
+            ? `${renderStudioResizer("ai", "h", { invert: true, label: "Secondary Side Bar" })}
+              <aside class="studio-ai" id="studio-ai" aria-label="Secondary Side Bar">
+                ${renderStudioAiSidebar()}
+              </aside>`
+            : ""
+        }
       </div>
+      ${renderStudioStatusBar()}
       ${renderStudioPlaygroundVersionModal()}
     </div>
   `;
   applyStudioLayout(els.studio.querySelector(".studio-root"));
   bindStudioResizers();
+  scrollActiveStudioFileTabIntoView();
   updateStudioControls();
+}
+
+function renderStudioActivityBar(panels) {
+  const tab = state.studio.sidebarTab === "release" ? "release" : "ai";
+  const activityButton = ({ action, icon, label, active, tab: targetTab }) => `
+    <button class="studio-activity-button${active ? " is-active" : ""}" type="button" data-action="${escapeAttr(action)}"${targetTab ? ` data-tab="${escapeAttr(targetTab)}"` : ""} aria-pressed="${active ? "true" : "false"}" aria-label="${escapeAttr(label)}" title="${escapeAttr(label)}">
+      <span class="dashicons ${escapeAttr(icon)}" aria-hidden="true"></span>
+    </button>
+  `;
+
+  return `
+    <nav class="studio-activitybar" aria-label="Studio workbench views">
+      <div class="studio-activitybar-primary">
+        ${activityButton({
+          action: "studio-toggle-files",
+          icon: "dashicons-open-folder",
+          label: panels.files ? "Hide Explorer" : "Show Explorer",
+          active: panels.files
+        })}
+        ${activityButton({
+          action: "studio-tab",
+          icon: "dashicons-editor-code",
+          label: "Editor",
+          active: state.studio.activeTab === "editor",
+          tab: "editor"
+        })}
+        ${activityButton({
+          action: "studio-tab",
+          icon: "dashicons-admin-home",
+          label: "Playground Home",
+          active: state.studio.activeTab === "home",
+          tab: "home"
+        })}
+      </div>
+      <div class="studio-activitybar-secondary">
+        ${activityButton({
+          action: "studio-open-sidebar-tab",
+          icon: "dashicons-format-chat",
+          label: "AI Helper",
+          active: panels.sidebar && tab === "ai",
+          tab: "ai"
+        })}
+        ${activityButton({
+          action: "studio-open-sidebar-tab",
+          icon: "dashicons-update",
+          label: "Release",
+          active: panels.sidebar && tab === "release",
+          tab: "release"
+        })}
+        ${activityButton({
+          action: "studio-toggle-terminal",
+          icon: "dashicons-editor-kitchensink",
+          label: state.studio.terminalOpen ? "Hide Terminal" : "Show Terminal",
+          active: state.studio.terminalOpen
+        })}
+      </div>
+    </nav>
+  `;
+}
+
+function renderStudioStatusBar() {
+  const plugin = state.studio.plugin;
+  const file = state.studio.selectedFile?.path ?? "No file selected";
+  const check = state.studio.checkSummary
+    ? `${state.studio.checkSummary.error || 0} errors, ${state.studio.checkSummary.warning || 0} warnings`
+    : "Plugin Check idle";
+  const assistant = selectedStudioAiAssistant();
+  return `
+    <footer class="studio-statusbar" aria-label="Studio status">
+      <span><span class="dashicons dashicons-admin-plugins" aria-hidden="true"></span>${escapeHtml(plugin?.slug ?? state.studio.id ?? "Studio")}</span>
+      <span>${escapeHtml(file)}</span>
+      <span>${escapeHtml(check)}</span>
+      <span class="studio-statusbar-spacer"></span>
+      <span>${escapeHtml(assistant === "none" ? "AI disabled" : assistantLabel(assistant))}</span>
+      <span>${escapeHtml(state.studio.readOnly ? "Read-only" : "Writable")}</span>
+    </footer>
+  `;
+}
+
+function renderStudioPinnedPreviewTabs(playgroundPort) {
+  return `
+    <span class="studio-pinned-tabs" aria-label="Pinned preview tabs">
+      <button type="button" role="tab" aria-selected="${state.studio.activeTab === "home" ? "true" : "false"}" class="studio-tab-button studio-tab-pinned studio-preview-tab${state.studio.activeTab === "home" ? " is-active" : ""}" data-action="studio-tab" data-tab="home" title="Home">
+        <span class="dashicons dashicons-admin-home" aria-hidden="true"></span>
+        <span>Home</span>
+        ${playgroundPort ? `<small>${escapeHtml(`:${playgroundPort}`)}</small>` : ""}
+      </button>
+      <button type="button" role="tab" aria-selected="${state.studio.activeTab === "admin" ? "true" : "false"}" class="studio-tab-button studio-tab-pinned studio-preview-tab${state.studio.activeTab === "admin" ? " is-active" : ""}" data-action="studio-tab" data-tab="admin" title="WP Admin">
+        <span class="dashicons dashicons-admin-site-alt3" aria-hidden="true"></span>
+        <span>WP Admin</span>
+        ${state.studio.playgroundUrl ? `<small>admin/password</small>` : ""}
+      </button>
+    </span>
+  `;
+}
+
+function renderStudioFileTabs() {
+  const openFiles = studioOpenFileTabs();
+  if (!openFiles.length) {
+    return `<span class="studio-file-tabs-empty">Open a file from Explorer</span>`;
+  }
+  return `
+    <span class="studio-file-tabs" aria-label="Open files">
+      ${openFiles.map((file) => renderStudioFileTab(file)).join("")}
+    </span>
+  `;
+}
+
+function studioOpenFileTabs() {
+  const knownFiles = new Map(state.studio.files.map((file) => [file.path, file]));
+  const selectedPath = state.studio.selectedFile?.path;
+  const paths = Array.isArray(state.studio.openFiles) ? [...state.studio.openFiles] : [];
+  if (selectedPath && !paths.includes(selectedPath)) {
+    paths.push(selectedPath);
+  }
+  state.studio.openFiles = paths;
+  return paths.map((path) => knownFiles.get(path) ?? {
+    path,
+    name: path.split("/").pop() ?? path,
+    directory: path.includes("/") ? path.split("/").slice(0, -1).join("/") : "",
+    size: 0
+  });
+}
+
+function renderStudioFileTab(file) {
+  const current = state.studio.activeTab === "editor" && file.path === state.studio.selectedFile?.path;
+  const dirty = current && state.studio.dirty;
+  return `
+    <span class="studio-file-tab-wrap">
+      <button type="button" role="tab" aria-selected="${current ? "true" : "false"}" class="studio-tab-button studio-editor-tab${current ? " is-active" : ""}" data-action="studio-file" data-path="${escapeAttr(file.path)}" title="${escapeAttr(file.path)}">
+        <span class="dashicons ${studioFileIcon(file.path)}" aria-hidden="true"></span>
+        <span>${escapeHtml(file.name ?? file.path)}</span>
+        ${dirty ? `<em aria-label="Unsaved changes"></em>` : ""}
+      </button>
+      <button type="button" class="studio-tab-close" data-action="studio-close-file-tab" data-path="${escapeAttr(file.path)}" aria-label="Close ${escapeAttr(file.name ?? file.path)}" title="Close">
+        <span class="dashicons dashicons-no-alt" aria-hidden="true"></span>
+      </button>
+    </span>
+  `;
+}
+
+function scrollActiveStudioFileTabIntoView() {
+  if (state.studio.activeTab !== "editor" || !state.studio.selectedFile?.path) {
+    return;
+  }
+  requestAnimationFrame(() => {
+    const container = document.querySelector(".studio-file-tabs");
+    if (!container) {
+      return;
+    }
+    const selectedPath = state.studio.selectedFile?.path;
+    const activeTab = Array.from(container.querySelectorAll(".studio-tab-button[data-path]")).find(
+      (button) => button.dataset.path === selectedPath
+    );
+    const target = activeTab?.closest(".studio-file-tab-wrap") ?? activeTab;
+    if (!target) {
+      return;
+    }
+
+    const padding = 12;
+    const containerRect = container.getBoundingClientRect();
+    const targetRect = target.getBoundingClientRect();
+    const targetLeft = targetRect.left - containerRect.left + container.scrollLeft;
+    const targetRight = targetLeft + targetRect.width;
+    const visibleLeft = container.scrollLeft;
+    const visibleRight = visibleLeft + container.clientWidth;
+
+    if (targetLeft < visibleLeft + padding) {
+      container.scrollLeft = Math.max(0, targetLeft - padding);
+    } else if (targetRight > visibleRight - padding) {
+      container.scrollLeft = targetRight - container.clientWidth + padding;
+    }
+  });
 }
 
 function renderStudioPlaygroundVersionModal() {
@@ -1879,6 +2478,21 @@ function renderStudioPlayButton() {
   `;
 }
 
+function renderStudioThemeToggle() {
+  const theme = studioTheme();
+  const isLight = theme === "light";
+  const nextTheme = isLight ? "dark" : "light";
+  return `
+    <button class="studio-theme-switch" type="button" role="switch" aria-checked="${isLight ? "true" : "false"}" data-action="studio-toggle-theme" title="${escapeAttr(`Switch to ${nextTheme} mode`)}">
+      <span class="dashicons dashicons-admin-appearance" aria-hidden="true"></span>
+      <span class="studio-theme-switch-track" aria-hidden="true">
+        <span></span>
+      </span>
+      <span class="studio-theme-switch-label">${escapeHtml(isLight ? "Light" : "Dark")}</span>
+    </button>
+  `;
+}
+
 function studioPreviewStateLabel() {
   if (state.studio.running) {
     return "Starting Playground";
@@ -1906,10 +2520,62 @@ function switchStudioTab(tab) {
   if (!["editor", "home", "admin"].includes(tab)) {
     return;
   }
-  captureStudioEditorValue();
+  const discardingDirtyEditor =
+    state.studio.activeTab === "editor" &&
+    tab !== "editor" &&
+    state.studio.dirty;
+  if (discardingDirtyEditor) {
+    if (!confirm("Discard unsaved changes in the current file?")) {
+      return;
+    }
+    state.studio.draftContent = state.studio.fileContent;
+    state.studio.dirty = false;
+  } else {
+    captureStudioEditorValue();
+  }
   state.studio.activeTab = tab;
   renderStudio();
   remountStudioEditorIfNeeded();
+  updateRouteFromState();
+}
+
+async function closeStudioFileTab(relativePath) {
+  if (!relativePath) {
+    return;
+  }
+  const openFiles = Array.isArray(state.studio.openFiles) ? state.studio.openFiles : [];
+  const index = openFiles.indexOf(relativePath);
+  if (index === -1) {
+    return;
+  }
+  const isCurrent = relativePath === state.studio.selectedFile?.path;
+  if (isCurrent && state.studio.dirty && !confirm("Discard unsaved changes in the current file?")) {
+    return;
+  }
+
+  captureStudioEditorValue();
+  const nextOpenFiles = openFiles.filter((path) => path !== relativePath);
+  state.studio.openFiles = nextOpenFiles;
+
+  if (!isCurrent) {
+    renderStudio();
+    remountStudioEditorIfNeeded();
+    return;
+  }
+
+  state.studio.dirty = false;
+  const nextPath = nextOpenFiles[Math.min(index, nextOpenFiles.length - 1)];
+  if (nextPath) {
+    await selectStudioFile(nextPath, { force: true });
+    return;
+  }
+
+  state.studio.selectedFile = null;
+  state.studio.fileContent = "";
+  state.studio.draftContent = "";
+  state.studio.activeTab = "home";
+  renderStudio();
+  updateRouteFromState();
 }
 
 function toggleStudioTerminal() {
@@ -1917,6 +2583,39 @@ function toggleStudioTerminal() {
   state.studio.terminalOpen = !state.studio.terminalOpen;
   renderStudio();
   remountStudioEditorIfNeeded();
+}
+
+function toggleStudioPanel(panel) {
+  if (!["files", "sidebar"].includes(panel)) {
+    return;
+  }
+  captureStudioEditorValue();
+  state.studio.panels = normalizeStudioPanelState(state.studio.panels);
+  state.studio.panels[panel] = !state.studio.panels[panel];
+  saveStudioPanelState(state.studio.panels);
+  renderStudio();
+  remountStudioEditorIfNeeded();
+  requestAnimationFrame(() => state.studio.editor?.layout?.());
+}
+
+function openStudioSidebarTab(tab) {
+  captureStudioEditorValue();
+  state.studio.panels = normalizeStudioPanelState(state.studio.panels);
+  state.studio.panels.sidebar = true;
+  saveStudioPanelState(state.studio.panels);
+  setStudioSidebarTab(tab);
+  renderStudio();
+  remountStudioEditorIfNeeded();
+  requestAnimationFrame(() => state.studio.editor?.layout?.());
+}
+
+function toggleStudioTheme() {
+  captureStudioEditorValue();
+  state.studio.theme = studioTheme() === "light" ? "dark" : "light";
+  saveStudioTheme(state.studio.theme);
+  renderStudio();
+  remountStudioEditorIfNeeded();
+  requestAnimationFrame(() => state.studio.editor?.layout?.());
 }
 
 function toggleStudioFolder(folderPath) {
@@ -2027,6 +2726,12 @@ function renderStudioAiSidebar() {
 
 function renderStudioSidebarTabs(activeTab) {
   return `
+    <header class="studio-secondary-header">
+      <strong>${activeTab === "release" ? "Release" : "AI Helper"}</strong>
+      <button class="studio-pane-action" type="button" data-action="studio-toggle-sidebar" aria-label="Hide Secondary Side Bar" title="Hide Secondary Side Bar">
+        <span class="dashicons dashicons-no-alt" aria-hidden="true"></span>
+      </button>
+    </header>
     <div class="studio-sidebar-tabs ps-segmented" role="tablist" aria-label="Studio sidebar">
       <button class="ps-segmented-option${activeTab === "ai" ? " is-active" : ""}" type="button" role="tab" aria-selected="${activeTab === "ai"}" data-action="studio-sidebar-tab" data-tab="ai">
         <span class="dashicons dashicons-format-chat" aria-hidden="true"></span>
@@ -2245,7 +2950,7 @@ function renderStudioAiMessages() {
                   <span>${escapeHtml(aiMessageRoleLabel(message))}</span>
                   <time>${escapeHtml(formatTime(message.createdAt))}</time>
                 </header>
-                <p>${escapeHtml(message.text)}</p>
+                <div class="studio-ai-markdown">${renderStudioAiMarkdown(message.text)}</div>
               </div>
             </article>
           `
@@ -2711,7 +3416,7 @@ function appendStudioAiOutput(text, tone = "log") {
   }
   last.text = `${last.text}${output}`;
   last.tone = tone === "error" ? "error" : last.tone === "status" ? "log" : last.tone;
-  updateStudioAiSidebar();
+  updateStudioAiMessageList();
 }
 
 function updateStudioAiSidebar() {
@@ -2723,9 +3428,38 @@ function updateStudioAiSidebar() {
   node.innerHTML = renderStudioAiSidebar();
   const messages = document.getElementById("studio-ai-messages");
   if (messages) {
-    messages.scrollTop = messages.scrollHeight;
+    scrollStudioAiMessagesToBottom(messages);
   }
   updateStudioAiControls();
+}
+
+function updateStudioAiMessageList(options = {}) {
+  const messages = document.getElementById("studio-ai-messages");
+  if (!messages) {
+    updateStudioAiSidebar();
+    return;
+  }
+
+  const shouldStick = options.forceScroll || isStudioAiMessagesNearBottom(messages);
+  messages.innerHTML = renderStudioAiMessages();
+  if (shouldStick) {
+    scrollStudioAiMessagesToBottom(messages);
+  }
+  updateStudioAiControls();
+}
+
+function isStudioAiMessagesNearBottom(messages) {
+  return messages.scrollHeight - messages.scrollTop - messages.clientHeight < 80;
+}
+
+function scrollStudioAiMessagesToBottom(messages) {
+  const previousScrollBehavior = messages.style.scrollBehavior;
+  messages.style.scrollBehavior = "auto";
+  messages.scrollTop = messages.scrollHeight;
+  requestAnimationFrame(() => {
+    messages.scrollTop = messages.scrollHeight;
+    messages.style.scrollBehavior = previousScrollBehavior;
+  });
 }
 
 function updateStudioAiControls() {
@@ -3078,7 +3812,7 @@ async function mountStudioEditor(content) {
       );
       state.studio.editorModels = [originalModel, modifiedModel];
       state.studio.editor = monaco.editor.createDiffEditor(container, {
-        theme: "vs-dark",
+        theme: studioMonacoTheme(),
         readOnly: true,
         automaticLayout: true,
         minimap: { enabled: false },
@@ -3101,7 +3835,7 @@ async function mountStudioEditor(content) {
     state.studio.editor = monaco.editor.create(container, {
       value: content,
       language: languageForPath(state.studio.selectedFile?.path ?? ""),
-      theme: "vs-dark",
+      theme: studioMonacoTheme(),
       readOnly: state.studio.readOnly,
       automaticLayout: true,
       minimap: { enabled: false },
@@ -4784,36 +5518,35 @@ function configureAutoRefresh() {
  * View switching with view-transitions
  * =================================================================== */
 
-function showView(view) {
-  if (state.activeView === view) {
-    return;
+function showView(view, options = {}) {
+  const nextView = normalizeViewId(view);
+  if (state.activeView === nextView) {
+    if (options.updateRoute !== false) {
+      updateRouteFromState({ replace: options.replaceRoute });
+    }
+    return Promise.resolve();
   }
   const apply = () => {
-    state.activeView = view;
-    document.body.dataset.activeView = view;
-    document.querySelectorAll(".view").forEach((node) => node.classList.remove("is-active"));
-    document.getElementById(`view-${view}`)?.classList.add("is-active");
-    document
-      .querySelectorAll("#adminmenu li")
-      .forEach((node) => node.classList.remove("wp-has-current-submenu"));
-    document
-      .querySelector(`#adminmenu li[data-view="${view}"]`)
-      ?.classList.add("wp-has-current-submenu");
+    applyActiveViewShell(nextView);
     closeDetail();
-    if (view === "release") {
+    if (nextView === "release") {
       if (!state.releaseBoard.loading && !state.releaseBoard.plugins.length) {
         void loadReleaseBoard();
       } else {
         renderReleaseBoard();
       }
     }
+    if (options.updateRoute !== false) {
+      updateRouteFromState({ replace: options.replaceRoute });
+    }
   };
 
   if (typeof document.startViewTransition === "function") {
-    document.startViewTransition(apply);
-  } else {
-    apply();
+    const transition = document.startViewTransition(apply);
+    return transition.updateCallbackDone?.catch(() => {}) ?? Promise.resolve();
   }
+  apply();
+  return Promise.resolve();
 }
 
 /* ===================================================================
@@ -5212,6 +5945,16 @@ function renderStudioAiMarkdown(value) {
     return sanitizeMarkdownHtml(markdownParser(markdown));
   } catch {
     return `<p>${escapeHtml(markdown)}</p>`;
+  }
+}
+
+function refreshStudioAiMarkdownIfReady() {
+  try {
+    if ((state.studio.aiMessages ?? []).some((message) => message.role === "assistant")) {
+      updateStudioAiMessageList();
+    }
+  } catch {
+    // The markdown parser can finish loading before Studio state exists.
   }
 }
 
@@ -5649,9 +6392,6 @@ function studioPluginKey() {
 
 function setStudioSidebarTab(tab) {
   const next = tab === "release" ? "release" : "ai";
-  if (state.studio.sidebarTab === next) {
-    return;
-  }
   state.studio.sidebarTab = next;
   saveStudioSidebarTab(studioPluginKey(), next);
   updateStudioSidebar();
@@ -5715,7 +6455,7 @@ function renderStudioReleasePane() {
       </header>
       <ol class="ps-release-funnel">
         ${renderStudioReleaseStepVersion(versionState, release)}
-        ${renderStudioReleaseStepTags(release)}
+        ${renderStudioReleaseStepTags(versionState, release)}
         ${renderStudioReleaseStepValidate(versionState, release)}
         ${renderStudioReleaseStepPublish(versionState, release)}
       </ol>
@@ -5793,7 +6533,11 @@ function renderStudioReleaseStepVersion(versionState, release) {
   return renderStudioReleaseStepShell(1, "Version state", summary, body);
 }
 
-function renderStudioReleaseStepTags(release) {
+function releaseTagDraftValue(versionState, release) {
+  return release.newTagDraft || versionState?.localVersion || "";
+}
+
+function renderStudioReleaseStepTags(versionState, release) {
   let body;
   if (release.tagsLoading && !release.tags) {
     body = loadingShell("Reading SVN tags…");
@@ -5814,22 +6558,31 @@ function renderStudioReleaseStepTags(release) {
     const tagRows = (list.tags ?? [])
       .map((tag) => renderStudioReleaseTagRow(tag))
       .join("");
+    const newTagValue = releaseTagDraftValue(versionState, release);
+    const currentVersionTag = versionState?.localVersion
+      ? (list.tags ?? []).find((tag) => tag.name === versionState.localVersion)
+      : null;
+    const newTagControl = currentVersionTag
+      ? currentVersionTag.isUncommitted
+        ? `<p class="ps-release-tag-ready"><span class="dashicons dashicons-yes-alt" aria-hidden="true"></span>${escapeHtml(`Tag ${versionState.localVersion} is ready. Run a dry-run release next.`)}</p>`
+        : `<p class="ps-release-tag-ready is-blocked"><span class="dashicons dashicons-warning" aria-hidden="true"></span>${escapeHtml(`Tag ${versionState.localVersion} already exists on WordPress.org SVN. Bump the version before creating a new tag.`)}</p>`
+      : `<div class="ps-release-step-newtag">
+          <label>
+            <span>Create tag from current version</span>
+            <input type="text" id="studio-release-new-tag" value="${escapeAttr(newTagValue)}" placeholder="1.2.3" />
+          </label>
+          <button class="button button-secondary" type="button" data-action="studio-release-create">
+            <span class="dashicons dashicons-plus-alt2" aria-hidden="true"></span>
+            Create tag
+          </button>
+        </div>`;
     body = `
       <ul class="ps-release-tag-list">
         ${trunkRow}
         ${tagRows || `<li class="ps-release-tag-empty">No tags yet.</li>`}
       </ul>
       ${renderStudioReleaseSwitchConflict(release)}
-      <div class="ps-release-step-newtag">
-        <label>
-          <span>Create tag from current version</span>
-          <input type="text" id="studio-release-new-tag" value="${escapeAttr(release.newTagDraft ?? "")}" placeholder="1.2.3" />
-        </label>
-        <button class="button button-secondary" type="button" data-action="studio-release-create">
-          <span class="dashicons dashicons-plus-alt2" aria-hidden="true"></span>
-          Create tag
-        </button>
-      </div>
+      ${newTagControl}
       ${release.newTagError ? `<p class="ps-release-inline-error"><span class="dashicons dashicons-warning" aria-hidden="true"></span>${escapeHtml(release.newTagError)}</p>` : ""}
     `;
   }
@@ -5881,9 +6634,11 @@ function renderStudioReleaseTagRow(tag) {
   const switchingLabel = release.switchingResolution === "override" || release.switchingResolution === "revert"
     ? "Resolving"
     : "Switching";
-  const switchButton = tag.isCurrent
-    ? ""
-    : `<button class="button button-small" type="button" data-action="studio-release-switch" data-tag="${escapeAttr(tag.name)}" ${anySwitching ? "disabled aria-disabled=\"true\"" : ""}>${switching ? `<span class="dashicons dashicons-update" aria-hidden="true"></span>${switchingLabel}` : "Switch"}</button>`;
+  const switchButton = tag.isUncommitted
+    ? `<span class="ps-release-tag-local-note" title="This tag exists locally and will be published by the release step.">Ready for release</span>`
+    : tag.isCurrent
+      ? ""
+      : `<button class="button button-small" type="button" data-action="studio-release-switch" data-tag="${escapeAttr(tag.name)}" ${anySwitching ? "disabled aria-disabled=\"true\"" : ""}>${switching ? `<span class="dashicons dashicons-update" aria-hidden="true"></span>${switchingLabel}` : "Switch"}</button>`;
   const confirmKey = `delete-tag:${tag.name}`;
   const pendingConfirm = state.studio.pendingConfirms?.get(confirmKey);
   const deleteButton = tag.isUncommitted
@@ -5939,6 +6694,117 @@ function renderStudioReleaseStepValidate(versionState, release) {
   return renderStudioReleaseStepShell(3, "Validate", summaryLine, body);
 }
 
+function studioPublishRouteDetails(action) {
+  switch (action) {
+    case "submit":
+      return {
+        label: "Submit new plugin",
+        shortLabel: "submit",
+        icon: "dashicons-upload",
+        description: "Use this for a first WordPress.org review. Pressship builds a package and uploads it to the plugin submission flow after confirmation.",
+        dryRunLabel: "Dry-run submit",
+        confirmLabel: "Confirm submit",
+        resultLabel: "WordPress.org submission"
+      };
+    case "release":
+      return {
+        label: "Release update",
+        shortLabel: "release",
+        icon: "dashicons-update",
+        description: "Use this for an approved plugin that already has an SVN repository. Pressship validates the package and publishes the current version after confirmation.",
+        dryRunLabel: "Dry-run release",
+        confirmLabel: "Confirm release",
+        resultLabel: "SVN release"
+      };
+    default:
+      return {
+        label: "Auto decide",
+        shortLabel: "auto",
+        icon: "dashicons-controls-play",
+        description: "Best default. Pressship checks WordPress.org and SVN, then chooses submit for first-time review or release for an existing plugin.",
+        dryRunLabel: "Dry-run auto",
+        confirmLabel: "Confirm publish",
+        resultLabel: "publish route"
+      };
+  }
+}
+
+function renderStudioReleasePublishOption(action, options = {}) {
+  const details = studioPublishRouteDetails(action);
+  const active = options.activeAction === action;
+  const chosen = options.detectedRoute === action;
+  const isDefault = options.defaultAction === action;
+  const recommended = action === "auto";
+  const disabled = options.running ? "disabled aria-disabled=\"true\"" : "";
+  const badges = [
+    recommended ? "Recommended" : "",
+    isDefault ? "Default" : "",
+    chosen ? "Selected" : ""
+  ].filter(Boolean);
+
+  return `
+    <button class="ps-release-publish-option${active ? " is-active" : ""}${chosen ? " is-selected" : ""}" type="button" data-action="dry-run-publish" data-id="${escapeAttr(state.studio.id)}" data-publish-action="${escapeAttr(action)}" ${disabled}>
+      <span class="ps-release-option-icon dashicons ${escapeAttr(details.icon)}" aria-hidden="true"></span>
+      <span class="ps-release-option-content">
+        <span class="ps-release-option-title">
+          <strong>${escapeHtml(details.label)}</strong>
+          ${badges.map((badge) => `<em>${escapeHtml(badge)}</em>`).join("")}
+        </span>
+        <span class="ps-release-option-copy">${escapeHtml(details.description)}</span>
+      </span>
+      <span class="ps-release-option-action">${escapeHtml(details.dryRunLabel)}</span>
+    </button>
+  `;
+}
+
+function renderStudioReleasePublishSummary(dryRun, pendingConfirm, running) {
+  if (running) {
+    return `
+      <div class="ps-release-publish-summary is-running" role="status">
+        <span class="dashicons dashicons-update" aria-hidden="true"></span>
+        <p>
+          <strong>Previewing publish route</strong>
+          <small>Validating the package and checking which path is safe to confirm.</small>
+        </p>
+      </div>
+    `;
+  }
+
+  if (!dryRun) {
+    return `
+      <p class="ps-release-step-muted">
+        Pick a dry-run path above. A dry-run validates the package and shows exactly what will happen; nothing is uploaded or committed until you confirm.
+      </p>
+    `;
+  }
+
+  const routeAction = dryRun.route?.action ?? "publish";
+  const details = studioPublishRouteDetails(routeAction);
+  const packageSummary = dryRun.package?.fileCount
+    ? `${dryRun.package.fileCount} packaged files`
+    : dryRun.package?.topLevelFolder
+      ? `Package folder: ${dryRun.package.topLevelFolder}`
+      : "";
+
+  return `
+    <div class="ps-release-publish-summary">
+      <div class="ps-release-publish-result">
+        <span class="dashicons ${escapeAttr(details.icon)}" aria-hidden="true"></span>
+        <p>
+          <strong>${escapeHtml(details.label)}</strong>
+          <small>${escapeHtml(dryRun.route?.reason ?? `Ready to preview ${details.resultLabel}.`)}</small>
+          ${packageSummary ? `<small>${escapeHtml(packageSummary)}</small>` : ""}
+        </p>
+      </div>
+      ${dryRun.canConfirm && dryRun.approvalId
+        ? `<button class="button button-primary ps-release-confirm-button${pendingConfirm ? " is-confirming" : ""}" type="button" data-action="studio-release-publish" data-approval-id="${escapeAttr(dryRun.approvalId)}" data-action-label="${escapeAttr(routeAction)}">
+            ${pendingConfirm ? "Click again to confirm" : escapeHtml(details.confirmLabel)}
+          </button>`
+        : `<p class="ps-release-step-muted">Dry-run did not pass. Fix validation or version findings before publishing.</p>`}
+    </div>
+  `;
+}
+
 function renderStudioReleaseStepPublish(versionState, release) {
   const defaultAction = state.settings?.defaultPublishAction ?? "auto";
   const dryRun = release.dryRun;
@@ -5946,39 +6812,23 @@ function renderStudioReleaseStepPublish(versionState, release) {
   const publishConfirmKey = "publish";
   const pendingConfirm = state.studio.pendingConfirms?.get(publishConfirmKey);
   const detectedRoute = dryRun?.route?.action;
+  const activeAction = detectedRoute ?? defaultAction;
 
   const body = `
-    <div class="ps-release-publish-options">
-      <button class="button${detectedRoute === "submit" ? " button-primary" : ""}" type="button" data-action="dry-run-publish" data-id="${escapeAttr(state.studio.id)}" data-publish-action="submit" ${running ? "disabled" : ""}>
-        <span class="dashicons dashicons-upload" aria-hidden="true"></span>
-        Dry-run submit
-      </button>
-      <button class="button${detectedRoute === "release" ? " button-primary" : ""}" type="button" data-action="dry-run-publish" data-id="${escapeAttr(state.studio.id)}" data-publish-action="release" ${running ? "disabled" : ""}>
-        <span class="dashicons dashicons-update" aria-hidden="true"></span>
-        Dry-run release
-      </button>
-      <button class="button${defaultAction === "auto" ? " button-primary" : ""}" type="button" data-action="dry-run-publish" data-id="${escapeAttr(state.studio.id)}" data-publish-action="auto" ${running ? "disabled" : ""}>
-        <span class="dashicons dashicons-controls-play" aria-hidden="true"></span>
-        Auto dry-run
-      </button>
+    <div class="ps-release-publish-guide">
+      <strong>Dry-run first, confirm second.</strong>
+      <span>Choose the route you want to preview. The dry-run is safe; the later confirm button performs the upload or SVN publish.</span>
     </div>
-    ${dryRun
-      ? `<div class="ps-release-publish-summary">
-          <p>
-            <strong>${escapeHtml(dryRun.route?.action ?? "publish")}</strong>
-            <small>${escapeHtml(dryRun.route?.reason ?? "")}</small>
-          </p>
-          ${dryRun.canConfirm && dryRun.approvalId
-            ? `<button class="button button-primary ps-release-confirm-button${pendingConfirm ? " is-confirming" : ""}" type="button" data-action="studio-release-publish" data-approval-id="${escapeAttr(dryRun.approvalId)}" data-action-label="${escapeAttr(dryRun.route?.action ?? "publish")}">
-                ${pendingConfirm ? "Click again to confirm" : `Confirm ${escapeHtml(dryRun.route?.action ?? "publish")}`}
-              </button>`
-            : `<p class="ps-release-step-muted">Dry-run did not pass — fix validation findings before publishing.</p>`}
-        </div>`
-      : `<p class="ps-release-step-muted">Run a dry-run to preview the publish plan.</p>`}
+    <div class="ps-release-publish-options">
+      ${renderStudioReleasePublishOption("auto", { activeAction, defaultAction, detectedRoute, running })}
+      ${renderStudioReleasePublishOption("submit", { activeAction, defaultAction, detectedRoute, running })}
+      ${renderStudioReleasePublishOption("release", { activeAction, defaultAction, detectedRoute, running })}
+    </div>
+    ${renderStudioReleasePublishSummary(dryRun, pendingConfirm, running)}
   `;
 
   const summary = dryRun
-    ? `Detected route: ${escapeHtml(dryRun.route?.action ?? "publish")}`
+    ? `Detected route: ${escapeHtml(studioPublishRouteDetails(dryRun.route?.action).shortLabel)}`
     : versionState?.releaseBlocked
       ? "Blocked — fix version state before publishing"
       : "";
@@ -6060,10 +6910,51 @@ async function refreshStudioAfterReleaseSwitch(result = {}) {
   }
 }
 
+async function refreshStudioAfterVersionChange(localId) {
+  if (!localId || state.studio.id !== localId || state.studio.scope !== "local") {
+    return;
+  }
+
+  const selectedPath = state.studio.selectedFile?.path;
+  try {
+    const [detail, filesResult, checkState, versionState] = await Promise.all([
+      api(`/api/plugins/local/${encodeURIComponent(localId)}`),
+      api(`/api/plugins/local/${encodeURIComponent(localId)}/files`),
+      api(`/api/plugins/local/${encodeURIComponent(localId)}/check-state`).catch(() => ({ state: null })),
+      api(`/api/plugins/local/${encodeURIComponent(localId)}/version-state`).catch(() => null)
+    ]);
+
+    applyStudioPluginDetail("local", localId, detail);
+    state.studio.files = filesResult.files ?? [];
+    applyStudioCheckState(checkState.state);
+    if (versionState) {
+      state.versionStates.set(localId, versionState);
+      if (!state.studio.release.newTagDraft || state.studio.release.newTagDraft === versionState.latestSvnTag) {
+        state.studio.release.newTagDraft = versionState.localVersion ?? "";
+      }
+    }
+
+    const selectedStillExists = selectedPath && state.studio.files.some((file) => file.path === selectedPath);
+    if (selectedStillExists) {
+      await selectStudioFile(selectedPath, { force: true });
+    } else {
+      renderStudio();
+      remountStudioEditorIfNeeded();
+    }
+    updateStudioSidebar();
+    updateStudioControls();
+  } catch (error) {
+    appendStudioTerminal(`Studio reload after version change failed: ${error.message}`, "error");
+    renderStudio();
+    updateStudioSidebar();
+  }
+}
+
 async function createStudioReleaseTag() {
   if (!state.studio.id) return;
   const input = document.getElementById("studio-release-new-tag");
-  const name = (input?.value ?? state.studio.release.newTagDraft ?? "").trim();
+  const versionState = state.versionStates.get(state.studio.id);
+  const name = (input?.value ?? releaseTagDraftValue(versionState, state.studio.release)).trim();
   if (!name) {
     state.studio.release.newTagError = "Enter a tag name first.";
     updateStudioSidebar();
@@ -6174,7 +7065,7 @@ async function bumpStudioReleaseVersion(localId, bump) {
     }, 1500);
     await loadLocal();
     if (state.studio.id === localId) {
-      await refreshStudioVersionState();
+      await refreshStudioAfterVersionChange(localId);
     }
   } catch (error) {
     state.studio.release.bumpInFlight = null;
@@ -6218,7 +7109,7 @@ async function setStudioCustomReleaseVersion(localId) {
     }, 1500);
     await loadLocal();
     if (state.studio.id === localId) {
-      await refreshStudioVersionState();
+      await refreshStudioAfterVersionChange(localId);
     }
   } catch (error) {
     state.studio.release.bumpInFlight = null;
@@ -6231,6 +7122,9 @@ function applyStudioVersionChangeResult(localId, result) {
   if (result && typeof result === "object") {
     const { checkState, ...versionState } = result;
     state.versionStates.set(localId, versionState);
+    if (state.studio.id === localId && versionState.localVersion) {
+      state.studio.release.newTagDraft = versionState.localVersion;
+    }
   }
   if (state.studio.id === localId && result && Object.prototype.hasOwnProperty.call(result, "checkState")) {
     applyStudioCheckState(result.checkState);
@@ -6246,6 +7140,9 @@ async function refreshStudioVersionState() {
       `/api/plugins/local/${encodeURIComponent(state.studio.id)}/version-state`
     );
     state.versionStates.set(state.studio.id, versionState);
+    if (!state.studio.release.newTagDraft && versionState.localVersion) {
+      state.studio.release.newTagDraft = versionState.localVersion;
+    }
     updateStudioSidebar();
   } catch (error) {
     // ignore — sidebar will keep stale data and notice was already shown

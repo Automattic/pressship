@@ -12,6 +12,7 @@ import fg from "fast-glob";
 import { z } from "zod";
 import { hasSavedSession } from "../auth/session.js";
 import { getWordPressOrgAccount } from "../auth/whoami.js";
+import { stagePluginDirectory } from "../package/archive.js";
 import { createPluginPack, summarizePackResult, validatePluginPack } from "../package/pack.js";
 import { discoverPluginProject, resolvePluginProjectPath } from "../plugin/discover.js";
 import {
@@ -70,6 +71,7 @@ import {
 
 const nodeRequire = createRequire(import.meta.url);
 const mutationMethods = new Set(["POST", "PUT", "PATCH", "DELETE"]);
+const spaRoutePrefixes = new Set(["dashboard", "studio", "wordpress.org", "remote", "local", "release", "settings"]);
 const addLocalPluginSchema = z.object({ path: z.string().min(1) });
 const bumpVersionSchema = z.object({ bump: z.enum(["patch", "minor", "major"]) });
 const setVersionSchema = z.object({ version: z.string().min(1) });
@@ -134,6 +136,12 @@ export type WebServerOptions = {
   host?: string;
   port?: string | number;
   noOpen?: boolean;
+  dependencies?: WebServerDependencies;
+};
+
+export type WebServerDependencies = {
+  runPluginCheck?: typeof runPluginCheck;
+  stagePluginDirectory?: typeof stagePluginDirectory;
 };
 
 type Approval = {
@@ -166,6 +174,7 @@ type PlaygroundRequestContext = {
   playgrounds: Map<string, ManagedPlayground>;
   playgroundPortReservations: Set<number>;
   staticDir: string;
+  dependencies: WebServerDependencies;
 };
 
 export type StartedWebServer = {
@@ -186,6 +195,7 @@ export async function startWebServer(options: WebServerOptions = {}): Promise<St
   const playgrounds = new Map<string, ManagedPlayground>();
   const playgroundPortReservations = new Set<number>();
   const staticDir = resolveStaticDir();
+  const dependencies = options.dependencies ?? {};
   const server = createServer((request, response) => {
     void handleRequest(request, response, {
       token,
@@ -193,7 +203,8 @@ export async function startWebServer(options: WebServerOptions = {}): Promise<St
       approvals,
       playgrounds,
       playgroundPortReservations,
-      staticDir
+      staticDir,
+      dependencies
     });
   });
 
@@ -542,7 +553,8 @@ async function handleApi(
       context.jobs,
       context.approvals,
       context.playgrounds,
-      context.playgroundPortReservations
+      context.playgroundPortReservations,
+      context.dependencies
     );
     sendJson(response, 202, job);
     return;
@@ -580,7 +592,8 @@ function createWebJob(
   jobs: WebJobManager,
   approvals: Map<string, Approval>,
   playgrounds: Map<string, ManagedPlayground>,
-  playgroundPortReservations: Set<number>
+  playgroundPortReservations: Set<number>,
+  dependencies: WebServerDependencies = {}
 ) {
   if (input.type === "clone") {
     return jobs.create("clone", `Clone/update ${input.slug}`, (context) => clonePluginJob(input, context));
@@ -593,7 +606,7 @@ function createWebJob(
   }
 
   if (input.type === "check") {
-    return jobs.create("check", "Plugin Check", (context) => pluginCheckJob(input.localId, context));
+    return jobs.create("check", "Plugin Check", (context) => pluginCheckJob(input.localId, context, dependencies));
   }
 
   if (input.type === "ai-chat") {
@@ -749,48 +762,60 @@ async function playPluginJob(
   }
 }
 
-async function pluginCheckJob(localId: string, context: WebJobContext) {
+async function pluginCheckJob(
+  localId: string,
+  context: WebJobContext,
+  dependencies: WebServerDependencies = {}
+) {
   const local = await requireLocalPlugin(localId);
   const source = resolvePluginProjectPath(local.path);
   const project = await discoverPluginProject(source.rootDir);
+  const stagePlugin = dependencies.stagePluginDirectory ?? stagePluginDirectory;
+  const pluginChecker = dependencies.runPluginCheck ?? runPluginCheck;
+  const stageRoot = await mkdtemp(path.join(tmpdir(), "pressship-studio-check-"));
 
   context.status(`Running WordPress.org Plugin Check for ${project.headers.pluginName}.`);
-  const result = await runPluginCheck(source.rootDir, { mode: "new" });
-  const findings = await addStudioPluginCheckLineHints(
-    normalizeStudioPluginCheckFindings(result.findings, source.rootDir, project.slug),
-    source.rootDir
-  );
-  const summary = summarizeStudioPluginCheckFindings(findings);
-  const checkedAt = new Date().toISOString();
-  const persisted = await writeStudioPluginCheckState({
-    pluginId: local.id,
-    pluginPath: local.path,
-    slug: local.slug,
-    name: local.name,
-    skipped: result.skipped,
-    available: result.available,
-    findings,
-    summary,
-    checkedAt
-  });
-  context.log(
-    `Plugin Check finished: ${summary.error} errors, ${summary.warning} warnings, ${summary.info} info.`
-  );
-
-  return {
-    plugin: {
-      id: local.id,
-      name: local.name,
+  try {
+    const checkTarget = await stagePlugin(project, { outputDir: stageRoot });
+    const result = await pluginChecker(checkTarget.path, { mode: "new" });
+    const findings = await addStudioPluginCheckLineHints(
+      normalizeStudioPluginCheckFindings(result.findings, checkTarget.path, project.slug),
+      source.rootDir
+    );
+    const summary = summarizeStudioPluginCheckFindings(findings);
+    const checkedAt = new Date().toISOString();
+    const persisted = await writeStudioPluginCheckState({
+      pluginId: local.id,
+      pluginPath: local.path,
       slug: local.slug,
-      path: local.path
-    },
-    skipped: result.skipped,
-    available: result.available,
-    findings,
-    summary,
-    checkedAt: persisted.checkedAt,
-    rawOutput: result.rawOutput
-  };
+      name: local.name,
+      skipped: result.skipped,
+      available: result.available,
+      findings,
+      summary,
+      checkedAt
+    });
+    context.log(
+      `Plugin Check finished: ${summary.error} errors, ${summary.warning} warnings, ${summary.info} info.`
+    );
+
+    return {
+      plugin: {
+        id: local.id,
+        name: local.name,
+        slug: local.slug,
+        path: local.path
+      },
+      skipped: result.skipped,
+      available: result.available,
+      findings,
+      summary,
+      checkedAt: persisted.checkedAt,
+      rawOutput: result.rawOutput
+    };
+  } finally {
+    await rm(stageRoot, { recursive: true, force: true });
+  }
 }
 
 async function aiChatJob(
@@ -1752,19 +1777,28 @@ function streamJobEvents(response: ServerResponse, jobs: WebJobManager, id: stri
 }
 
 async function serveStatic(response: ServerResponse, staticDir: string, requestPath: string, token: string): Promise<void> {
-  const filePath = path.join(staticDir, requestPath === "/" ? "index.html" : requestPath);
-  if (!filePath.startsWith(staticDir)) {
+  if (requestPath === "/" || isSpaRoutePath(requestPath)) {
+    await serveIndex(response, staticDir, token);
+    return;
+  }
+
+  const rootDir = path.resolve(staticDir);
+  const relativePath = requestPath.replace(/^\/+/, "");
+  const filePath = path.resolve(rootDir, relativePath);
+  if (filePath !== rootDir && !filePath.startsWith(`${rootDir}${path.sep}`)) {
     sendJson(response, 403, { error: { message: "Forbidden." } });
     return;
   }
 
   if (path.basename(filePath) === "index.html") {
-    const html = (await import("node:fs/promises")).readFile(filePath, "utf8");
-    response.writeHead(200, {
-      "Cache-Control": "no-store",
-      "Content-Type": "text/html; charset=utf-8"
-    });
-    response.end((await html).replace("__PRESSSHIP_TOKEN__", token));
+    await serveIndex(response, rootDir, token);
+    return;
+  }
+
+  try {
+    await stat(filePath);
+  } catch {
+    sendJson(response, 404, { error: { message: "Not found." } });
     return;
   }
 
@@ -1776,6 +1810,21 @@ async function serveStatic(response: ServerResponse, staticDir: string, requestP
   createReadStream(filePath)
     .on("error", () => sendJson(response, 404, { error: { message: "Not found." } }))
     .pipe(response);
+}
+
+function isSpaRoutePath(requestPath: string): boolean {
+  const firstSegment = requestPath.split("/").filter(Boolean)[0] ?? "";
+  return spaRoutePrefixes.has(firstSegment);
+}
+
+async function serveIndex(response: ServerResponse, staticDir: string, token: string): Promise<void> {
+  const filePath = path.join(staticDir, "index.html");
+  const html = await readFile(filePath, "utf8");
+  response.writeHead(200, {
+    "Cache-Control": "no-store",
+    "Content-Type": "text/html; charset=utf-8"
+  });
+  response.end(html.replace("__PRESSSHIP_TOKEN__", token));
 }
 
 async function readJson(request: IncomingMessage): Promise<unknown> {
