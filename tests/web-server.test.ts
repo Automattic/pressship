@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import { existsSync } from "node:fs";
 import { chmod, mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -53,6 +54,7 @@ describe("studio server", () => {
   it("serves the app, bootstraps state, and guards mutating APIs", async () => {
     process.env.PRESSSHIP_CONFIG_DIR = await mkdtemp(path.join(tmpdir(), "pressship-studio-config-"));
     const pluginRoot = await samplePlugin();
+    await writeFile(path.join(pluginRoot, ".DS_Store"), "desktop metadata");
     const server = await startWebServer({ port: 0, noOpen: true });
 
     try {
@@ -94,6 +96,15 @@ describe("studio server", () => {
         response.json()
       );
       expect(files.files.map((file: { path: string }) => file.path)).toContain("example-plugin.php");
+      expect(files.files.map((file: { path: string }) => file.path)).toContain(".DS_Store");
+
+      const dsStore = await fetch(
+        new URL(`/api/plugins/local/${added.id}/files/content?path=${encodeURIComponent(".DS_Store")}`, server.url)
+      ).then((response) => response.json());
+      expect(dsStore).toMatchObject({
+        path: ".DS_Store",
+        content: "desktop metadata"
+      });
 
       await writeStudioPluginCheckState({
         pluginId: added.id,
@@ -231,6 +242,192 @@ describe("studio server", () => {
         (response) => response.json()
       );
       expect(prunedCheckState.state.summary.total).toBe(0);
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("manages Studio ignore rules and marks ignored files in listings", async () => {
+    process.env.PRESSSHIP_CONFIG_DIR = await mkdtemp(path.join(tmpdir(), "pressship-studio-config-"));
+    const pluginRoot = await samplePlugin();
+    await mkdir(path.join(pluginRoot, "includes"), { recursive: true });
+    await mkdir(path.join(pluginRoot, "assets"), { recursive: true });
+    await mkdir(path.join(pluginRoot, ".git", "objects"), { recursive: true });
+    await mkdir(path.join(pluginRoot, ".svn"), { recursive: true });
+    await mkdir(path.join(pluginRoot, "node_modules", "hidden"), { recursive: true });
+    await mkdir(path.join(pluginRoot, "node_modules", "hidden", "nested"), { recursive: true });
+    await mkdir(path.join(pluginRoot, "node_modules", ".git"), { recursive: true });
+    await writeFile(path.join(pluginRoot, "includes", "ignored.php"), "<?php\n// ignored\n");
+    await writeFile(path.join(pluginRoot, "includes", "helper.php"), "<?php\n// helper\n");
+    await writeFile(path.join(pluginRoot, "assets", "demo.mp4"), "demo");
+    await writeFile(path.join(pluginRoot, ".git", "objects", "ignored"), "git");
+    await writeFile(path.join(pluginRoot, ".svn", "entries"), "svn");
+    await writeFile(path.join(pluginRoot, "node_modules", "hidden", "ignored.php"), "<?php\n// noisy\n");
+    await writeFile(path.join(pluginRoot, "node_modules", "hidden", "nested", "index.js"), "node");
+    await writeFile(path.join(pluginRoot, "node_modules", ".git", "config"), "git");
+    const server = await startWebServer({ port: 0, noOpen: true });
+
+    try {
+      const added = await addLocalPlugin(server, pluginRoot);
+      const ignoreStateUrl = new URL(`/api/plugins/local/${added.id}/ignore-state`, server.url);
+      const ignoreRulesUrl = new URL(`/api/plugins/local/${added.id}/ignore-rules`, server.url);
+
+      const initial = await fetch(ignoreStateUrl).then((response) => response.json());
+      expect(initial).toMatchObject({
+        ignorePath: path.join(pluginRoot, ".pressshipignore"),
+        patterns: [],
+        ignoredFiles: []
+      });
+
+      const addedRule = await fetch(ignoreRulesUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Pressship-Token": server.token
+        },
+        body: JSON.stringify({ pattern: "./includes/**" })
+      }).then((response) => response.json());
+      expect(addedRule.patterns).toEqual(["includes/**"]);
+      expect(addedRule.ignoredFiles.map((file: { path: string }) => file.path)).toEqual([
+        "includes/helper.php",
+        "includes/ignored.php"
+      ]);
+      expect(await readFile(path.join(pluginRoot, ".pressshipignore"), "utf8")).toBe("includes/**\n");
+
+      const files = await fetch(new URL(`/api/plugins/local/${added.id}/files`, server.url)).then((response) =>
+        response.json()
+      );
+      const filesByPath = new Map(files.files.map((file: { path: string }) => [file.path, file]));
+      const directoriesByPath = new Map((files.directories ?? []).map((directory: { path: string }) => [directory.path, directory]));
+      expect(filesByPath.get("includes/ignored.php")).toMatchObject({
+        ignored: true,
+        ignoredBy: "includes/**"
+      });
+      expect(directoriesByPath.get("includes")).toMatchObject({
+        deferred: false,
+        ignored: true,
+        ignoredBy: "includes/**",
+        hardIgnored: false
+      });
+      expect(filesByPath.has(".pressshipignore")).toBe(true);
+      expect(filesByPath.has("assets/demo.mp4")).toBe(true);
+      expect(filesByPath.has(".git/objects/ignored")).toBe(false);
+      expect(filesByPath.has("node_modules/hidden/ignored.php")).toBe(false);
+      expect(directoriesByPath.has(".git")).toBe(false);
+      expect(directoriesByPath.get(".svn")).toMatchObject({
+        deferred: true,
+        ignored: true,
+        ignoredBy: "Pressship package rules",
+        hardIgnored: true
+      });
+      expect(directoriesByPath.get("node_modules")).toMatchObject({
+        deferred: true,
+        ignored: true,
+        ignoredBy: "Pressship package rules",
+        hardIgnored: true
+      });
+      const nodeModules = await fetch(
+        new URL(`/api/plugins/local/${added.id}/files/directory?path=node_modules`, server.url)
+      ).then((response) => response.json());
+      const nodeModuleDirectoriesByPath = new Map(
+        (nodeModules.directories ?? []).map((directory: { path: string }) => [directory.path, directory])
+      );
+      const nodeModuleFilesByPath = new Map(
+        (nodeModules.files ?? []).map((file: { path: string }) => [file.path, file])
+      );
+      expect(nodeModuleDirectoriesByPath.get("node_modules")).toMatchObject({
+        deferred: false,
+        ignored: true,
+        ignoredBy: "Pressship package rules",
+        hardIgnored: true
+      });
+      expect(nodeModuleDirectoriesByPath.get("node_modules/hidden")).toMatchObject({
+        deferred: true,
+        ignored: true,
+        ignoredBy: "Pressship package rules",
+        hardIgnored: true
+      });
+      expect(nodeModuleDirectoriesByPath.has("node_modules/.git")).toBe(false);
+      expect(nodeModuleFilesByPath.has("node_modules/.git/config")).toBe(false);
+      expect(nodeModuleFilesByPath.get("node_modules/hidden/ignored.php")).toBeUndefined();
+
+      const nestedNodeModule = await fetch(
+        new URL(`/api/plugins/local/${added.id}/files/directory?path=node_modules/hidden`, server.url)
+      ).then((response) => response.json());
+      const nestedNodeModuleDirectoriesByPath = new Map(
+        (nestedNodeModule.directories ?? []).map((directory: { path: string }) => [directory.path, directory])
+      );
+      const nestedNodeModuleFilesByPath = new Map(
+        (nestedNodeModule.files ?? []).map((file: { path: string }) => [file.path, file])
+      );
+      expect(nestedNodeModuleDirectoriesByPath.get("node_modules/hidden")).toMatchObject({
+        deferred: false,
+        ignored: true,
+        ignoredBy: "Pressship package rules",
+        hardIgnored: true
+      });
+      expect(nestedNodeModuleDirectoriesByPath.get("node_modules/hidden/nested")).toMatchObject({
+        deferred: true,
+        ignored: true,
+        ignoredBy: "Pressship package rules",
+        hardIgnored: true
+      });
+      expect(nestedNodeModuleFilesByPath.get("node_modules/hidden/ignored.php")).toMatchObject({
+        hardIgnored: true,
+        ignored: true,
+        ignoredBy: "Pressship package rules"
+      });
+
+      const unsafe = await fetch(ignoreRulesUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Pressship-Token": server.token
+        },
+        body: JSON.stringify({ pattern: "../secrets.php" })
+      });
+      expect(unsafe.status).toBe(400);
+
+      const removedRule = await fetch(ignoreRulesUrl, {
+        method: "DELETE",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Pressship-Token": server.token
+        },
+        body: JSON.stringify({ pattern: "includes/**" })
+      }).then((response) => response.json());
+      expect(removedRule.patterns).toEqual([]);
+      expect(removedRule.ignoredFiles).toEqual([]);
+      expect(await readFile(path.join(pluginRoot, ".pressshipignore"), "utf8")).toBe("");
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("reports package size for Studio without rejecting over-limit bundles", async () => {
+    process.env.PRESSSHIP_CONFIG_DIR = await mkdtemp(path.join(tmpdir(), "pressship-studio-config-"));
+    const pluginRoot = await samplePlugin();
+    await mkdir(path.join(pluginRoot, "assets"), { recursive: true });
+    await writeFile(path.join(pluginRoot, "assets", "big-demo.bin"), randomBytes(10 * 1024 * 1024 + 256 * 1024));
+    const server = await startWebServer({ port: 0, noOpen: true });
+
+    try {
+      const added = await addLocalPlugin(server, pluginRoot);
+      const packageSizeUrl = new URL(`/api/plugins/local/${added.id}/package-size`, server.url);
+      const initial = await fetch(packageSizeUrl).then((response) => response.json());
+      expect(["calculating", "ready"]).toContain(initial.status);
+      const packageSize = initial.status === "ready" ? initial : await waitForPackageSize(packageSizeUrl);
+      const cached = await fetch(packageSizeUrl).then((response) => response.json());
+
+      expect(packageSize.status).toBe("ready");
+      expect(packageSize.overLimit).toBe(true);
+      expect(packageSize.sizeBytes).toBeGreaterThan(packageSize.maxSizeBytes);
+      expect(packageSize.fileCount).toBeGreaterThan(0);
+      expect(packageSize.largestFiles[0]).toMatchObject({
+        path: "assets/big-demo.bin"
+      });
+      expect(cached.status).toBe("ready");
+      expect(cached.calculatedAt).toBe(packageSize.calculatedAt);
     } finally {
       await server.close();
     }
@@ -829,6 +1026,17 @@ async function addLocalPlugin(server: { url: string; token: string }, pluginRoot
     },
     body: JSON.stringify({ path: pluginRoot })
   }).then((response) => response.json()) as Promise<{ id: string }>;
+}
+
+async function waitForPackageSize(url: URL): Promise<any> {
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    const result = await fetch(url).then((response) => response.json());
+    if (result.status === "ready" || result.status === "error") {
+      return result;
+    }
+  }
+  throw new Error("Timed out waiting for package size.");
 }
 
 async function startPlaygroundJob(

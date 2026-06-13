@@ -6,6 +6,7 @@ import { runPluginCheck } from "../checks/plugin-check.js";
 import { validateReadmeFile } from "../checks/readme-validator.js";
 import { hasBlockingFindings, printFindings } from "../checks/summary.js";
 import { createPluginZip, stagePluginDirectory } from "../package/archive.js";
+import { mergeIgnorePatterns, readPressshipIgnorePatterns } from "../package/ignore.js";
 import { discoverPluginProject } from "../plugin/discover.js";
 import type { PackageResult, PluginProject } from "../types.js";
 import { ui } from "../ui.js";
@@ -34,6 +35,10 @@ export async function submit(pluginPath: string | undefined, rawOptions: SubmitO
 
   const project = await ui.task("Discovering WordPress plugin", () => discoverPluginProject(rootDir), (value) =>
     `Discovered ${value.headers.pluginName}`
+  );
+  const ignorePatterns = mergeIgnorePatterns(
+    options.ignore,
+    await readPressshipIgnorePatterns(project.rootDir)
   );
   printProjectSummary(project);
 
@@ -64,7 +69,7 @@ export async function submit(pluginPath: string | undefined, rawOptions: SubmitO
     () =>
       createPluginZip(project, {
         outputDir: options.outputDir,
-        ignore: options.ignore
+        ignore: ignorePatterns
       }),
     (value) => `Created submission zip (${formatBytes(value.sizeBytes)})`
   );
@@ -73,7 +78,7 @@ export async function submit(pluginPath: string | undefined, rawOptions: SubmitO
   const checkTarget = await ui.task("Preparing Plugin Check target", () =>
     stagePluginDirectory(project, {
       outputDir: options.outputDir,
-      ignore: options.ignore
+      ignore: ignorePatterns
     })
   );
   const pluginCheck = await ui.task("Running WordPress.org Plugin Check", () =>

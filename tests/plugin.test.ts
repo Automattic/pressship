@@ -3,6 +3,11 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { createPluginZip, listPackageFiles, stagePluginDirectory } from "../src/package/archive.js";
+import {
+  addPressshipIgnorePattern,
+  readPressshipIgnorePatterns,
+  removePressshipIgnorePattern
+} from "../src/package/ignore.js";
 import { createPluginPack, skippedPackValidation, summarizePackResult, validatePluginPack } from "../src/package/pack.js";
 import { summarizeVerifyResult } from "../src/package/verify.js";
 import { discoverPluginProject, resolvePluginProjectPath } from "../src/plugin/discover.js";
@@ -99,8 +104,75 @@ describe("packaging", () => {
     expect(files).toEqual(["assets/poster.jpg", "example-plugin.php", "readme.txt"]);
   });
 
+  it("never packages VCS or dependency directories", async () => {
+    const root = await samplePlugin();
+    await mkdir(path.join(root, ".git", "objects"), { recursive: true });
+    await mkdir(path.join(root, ".svn"), { recursive: true });
+    await mkdir(path.join(root, "node_modules", "package"), { recursive: true });
+    await writeFile(path.join(root, ".git", "objects", "leak"), "git");
+    await writeFile(path.join(root, ".svn", "entries"), "svn");
+    await writeFile(path.join(root, "node_modules", "package", "index.js"), "node");
+    await writeFile(path.join(root, ".pressshipignore"), "!.git/**\n!.svn/**\n!node_modules/**\n");
+
+    const files = await listPackageFiles(root);
+
+    expect(files).toEqual(["example-plugin.php", "readme.txt"]);
+  });
+
+  it("honors .pressshipignore while preserving comments and unique patterns", async () => {
+    const root = await samplePlugin();
+    await mkdir(path.join(root, "assets", "videos"), { recursive: true });
+    await writeFile(path.join(root, "assets", "videos", "demo.mp4"), "");
+    await writeFile(path.join(root, "assets", "poster.jpg"), "");
+    await writeFile(path.join(root, ".pressshipignore"), "# local release ignores\nassets/**/*.mp4\n");
+
+    await addPressshipIgnorePattern(root, "./assets/poster.jpg");
+    await addPressshipIgnorePattern(root, "assets/poster.jpg");
+
+    expect(await readPressshipIgnorePatterns(root)).toEqual(["assets/**/*.mp4", "assets/poster.jpg"]);
+    expect(await readFile(path.join(root, ".pressshipignore"), "utf8")).toBe(
+      "# local release ignores\nassets/**/*.mp4\nassets/poster.jpg\n"
+    );
+    expect(await listPackageFiles(root)).toEqual(["example-plugin.php", "readme.txt"]);
+
+    await removePressshipIgnorePattern(root, "assets/poster.jpg");
+
+    expect(await readFile(path.join(root, ".pressshipignore"), "utf8")).toBe(
+      "# local release ignores\nassets/**/*.mp4\n"
+    );
+    expect(await listPackageFiles(root)).toEqual(["assets/poster.jpg", "example-plugin.php", "readme.txt"]);
+  });
+
+  it("normalizes folder dot ignore rules to folder globs", async () => {
+    const root = await samplePlugin();
+    await mkdir(path.join(root, "snapshots"), { recursive: true });
+    await writeFile(path.join(root, "snapshots", "preview.html"), "<p>preview</p>");
+
+    await addPressshipIgnorePattern(root, "snapshots/.");
+
+    expect(await readPressshipIgnorePatterns(root)).toEqual(["snapshots/**"]);
+    expect(await readFile(path.join(root, ".pressshipignore"), "utf8")).toBe("snapshots/**\n");
+    expect(await listPackageFiles(root)).toEqual(["example-plugin.php", "readme.txt"]);
+
+    await removePressshipIgnorePattern(root, "snapshots/.");
+
+    expect(await readFile(path.join(root, ".pressshipignore"), "utf8")).toBe("");
+    expect(await listPackageFiles(root)).toEqual(["example-plugin.php", "readme.txt", "snapshots/preview.html"]);
+  });
+
+  it("rejects unsafe Studio-managed ignore patterns", async () => {
+    const root = await samplePlugin();
+
+    await expect(addPressshipIgnorePattern(root, "")).rejects.toThrow("Enter an ignore pattern");
+    await expect(addPressshipIgnorePattern(root, "../secret.txt")).rejects.toThrow("parent-directory");
+    await expect(addPressshipIgnorePattern(root, "/tmp/file.txt")).rejects.toThrow("relative");
+  });
+
   it("stages the package files for Plugin Check", async () => {
     const root = await samplePlugin();
+    await mkdir(path.join(root, "assets", "videos"), { recursive: true });
+    await writeFile(path.join(root, "assets", "videos", "demo.mp4"), "");
+    await writeFile(path.join(root, ".pressshipignore"), "assets/**/*.mp4\n");
     const project = await discoverPluginProject(root);
     const stage = await stagePluginDirectory(project, { outputDir: path.join(root, "build-output") });
     const stagedMain = await readFile(path.join(stage.path, "example-plugin.php"), "utf8");
@@ -108,6 +180,7 @@ describe("packaging", () => {
     expect(path.basename(stage.path)).toBe("example-plugin");
     expect(stage.files).toEqual(["example-plugin.php", "readme.txt"]);
     expect(stagedMain).toContain("Plugin Name: Example Plugin");
+    await expect(readFile(path.join(stage.path, "assets", "videos", "demo.mp4"), "utf8")).rejects.toThrow();
   });
 
   it("packs a plugin zip for the npm-style pack command", async () => {

@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -76,11 +76,75 @@ describe("SVN release verification", () => {
     expect(mocks.ensureSvnAvailable).toHaveBeenCalledOnce();
     expect(mocks.execa).toHaveBeenCalledWith("svn", ["info"], expect.any(Object));
   });
+
+  it("syncs only package-included files into SVN trunk from a non-trunk source", async () => {
+    const pluginRoot = await samplePlugin();
+    await writeFile(path.join(pluginRoot, "ignored.php"), "<?php\n// ignored locally\n");
+    await writeFile(path.join(pluginRoot, ".pressshipignore"), "ignored.php\n");
+    await mkdir(path.join(pluginRoot, ".wordpress-org"), { recursive: true });
+    await writeFile(path.join(pluginRoot, ".wordpress-org", "banner-1544x500.png"), "banner");
+    const svnDir = path.join(await mkdtemp(path.join(tmpdir(), "pressship-svn-release-")), "example-plugin");
+
+    await release(pluginRoot, { svnDir, verify: false, yes: true });
+
+    await expect(readFile(path.join(svnDir, "trunk", "ignored.php"), "utf8")).rejects.toThrow();
+    await expect(readFile(path.join(svnDir, "trunk", "example-plugin.php"), "utf8")).resolves.toContain(
+      "Plugin Name: Example Plugin"
+    );
+    await expect(readFile(path.join(svnDir, "assets", "banner-1544x500.png"), "utf8")).resolves.toBe("banner");
+
+    const svnCalls = mocks.execa.mock.calls.map(([, args]) => args as string[]);
+    expect(svnCalls.some((args) => args[0] === "add" && args.includes("trunk/ignored.php"))).toBe(false);
+    expect(svnCalls.some((args) => args[0] === "add" && args.includes("assets/banner-1544x500.png"))).toBe(true);
+  });
+
+  it("keeps ignored trunk files locally while removing versioned copies from SVN", async () => {
+    const svnDir = path.join(await mkdtemp(path.join(tmpdir(), "pressship-svn-release-")), "example-plugin");
+    await mkdir(path.join(svnDir, ".svn"), { recursive: true });
+    const trunkDir = path.join(svnDir, "trunk");
+    await mkdir(trunkDir, { recursive: true });
+    await writeSamplePluginFiles(trunkDir);
+    await writeFile(path.join(trunkDir, "ignored.php"), "<?php\n// keep local\n");
+    await writeFile(path.join(trunkDir, ".pressshipignore"), "ignored.php\n");
+    mocks.execa.mockImplementation(async (_command, args) => {
+      const svnArgs = args as string[];
+      if (svnArgs[0] === "list" && svnArgs[1] === "-R" && svnArgs[2] === "trunk") {
+        return {
+          exitCode: 0,
+          failed: false,
+          stdout: "example-plugin.php\nignored.php\nreadme.txt\n",
+          stderr: ""
+        };
+      }
+      if (svnArgs[0] === "status") {
+        return {
+          exitCode: 0,
+          failed: false,
+          stdout: "?       trunk/ignored.php\n",
+          stderr: ""
+        };
+      }
+      return { exitCode: 0, failed: false, stdout: "", stderr: "" };
+    });
+
+    await release(trunkDir, { svnDir, verify: false, yes: true });
+
+    expect(await readFile(path.join(trunkDir, "ignored.php"), "utf8")).toContain("keep local");
+    const svnCalls = mocks.execa.mock.calls.map(([, args]) => args as string[]);
+    expect(svnCalls).toContainEqual(["delete", "--keep-local", "trunk/ignored.php"]);
+    expect(svnCalls.some((args) => args[0] === "add" && args.includes("trunk/ignored.php"))).toBe(false);
+    expect(svnCalls.some((args) => args[0] === "commit")).toBe(false);
+  });
 });
 
 async function samplePlugin(): Promise<string> {
   const root = await mkdtemp(path.join(tmpdir(), "pressship-plugin-"));
   await mkdir(root, { recursive: true });
+  await writeSamplePluginFiles(root);
+  return root;
+}
+
+async function writeSamplePluginFiles(root: string): Promise<void> {
   await writeFile(
     path.join(root, "example-plugin.php"),
     `<?php
@@ -107,5 +171,4 @@ License: GPLv2 or later
 Does example things.
 `
   );
-  return root;
 }

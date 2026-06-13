@@ -1,6 +1,6 @@
 import { createHash, randomBytes } from "node:crypto";
 import { createReadStream } from "node:fs";
-import { cp, mkdir, mkdtemp, readFile, rm, stat, unlink, writeFile } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, readdir, readFile, rm, stat, unlink, writeFile } from "node:fs/promises";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
@@ -12,7 +12,16 @@ import fg from "fast-glob";
 import { z } from "zod";
 import { hasSavedSession } from "../auth/session.js";
 import { getWordPressOrgAccount } from "../auth/whoami.js";
-import { stagePluginDirectory } from "../package/archive.js";
+import { analyzePluginPackage, stagePluginDirectory } from "../package/archive.js";
+import {
+  addPressshipIgnorePattern,
+  createPressshipIgnoreMatcher,
+  hardIgnoreDirectories,
+  isHardIgnoredPath,
+  pressshipIgnoreFile,
+  readPressshipIgnorePatterns,
+  removePressshipIgnorePattern
+} from "../package/ignore.js";
 import { createPluginPack, summarizePackResult, validatePluginPack } from "../package/pack.js";
 import { discoverPluginProject, resolvePluginProjectPath } from "../plugin/discover.js";
 import {
@@ -32,7 +41,7 @@ import { publish } from "../wordpress-org/publish.js";
 import { fetchPluginStates, matchesPluginState } from "../wordpress-org/state.js";
 import { runPluginCheck } from "../checks/plugin-check.js";
 import { hasBlockingFindings } from "../checks/summary.js";
-import { ensureCacheDir, getConfigDir } from "../utils/paths.js";
+import { ensureCacheDir, getConfigDir, pathExists } from "../utils/paths.js";
 import { addLocalPluginPath, getLocalPlugin, listLocalPlugins, removeLocalPlugin } from "./registry.js";
 import { WebJobManager, type WebJobContext } from "./jobs.js";
 import { getVersionState } from "./version-state.js";
@@ -77,6 +86,7 @@ const bumpVersionSchema = z.object({ bump: z.enum(["patch", "minor", "major"]) }
 const setVersionSchema = z.object({ version: z.string().min(1) });
 const createSvnTagSchema = z.object({ name: z.string().min(1) });
 const switchSvnTagSchema = z.object({ conflictResolution: z.enum(["override", "revert"]).optional() });
+const ignoreRuleSchema = z.object({ pattern: z.string().min(1) });
 const writeStudioFileSchema = z.object({
   path: z.string().min(1),
   content: z.string()
@@ -87,6 +97,22 @@ const studioAiChangeSchema = z.object({
   beforeContent: z.string().optional(),
   afterContent: z.string().optional()
 });
+type StudioPackageSizeResult = {
+  sizeBytes: number;
+  maxSizeBytes: number;
+  overLimit: boolean;
+  fileCount: number;
+  topLevelFolder: string;
+  largestFiles: Array<{ path: string; sizeBytes: number }>;
+};
+type StudioPackageSizeCacheEntry = {
+  status: "calculating" | "ready" | "error";
+  result?: StudioPackageSizeResult;
+  error?: string;
+  requestedAt: string;
+  updatedAt?: string;
+  promise?: Promise<void>;
+};
 const installedAiAssistantSchema = z.custom<InstalledAiAssistantId>(
   (value) => typeof value === "string" && isInstalledAiAssistantId(value),
   { message: "Unknown AI assistant." }
@@ -150,6 +176,7 @@ type Approval = {
   pluginPath: string;
   action: "submit" | "release";
   version?: string;
+  ignore?: string[];
   createdAt: number;
 };
 
@@ -173,6 +200,7 @@ type PlaygroundRequestContext = {
   approvals: Map<string, Approval>;
   playgrounds: Map<string, ManagedPlayground>;
   playgroundPortReservations: Set<number>;
+  packageSizeCache: Map<string, StudioPackageSizeCacheEntry>;
   staticDir: string;
   dependencies: WebServerDependencies;
 };
@@ -194,6 +222,7 @@ export async function startWebServer(options: WebServerOptions = {}): Promise<St
   const approvals = new Map<string, Approval>();
   const playgrounds = new Map<string, ManagedPlayground>();
   const playgroundPortReservations = new Set<number>();
+  const packageSizeCache = new Map<string, StudioPackageSizeCacheEntry>();
   const staticDir = resolveStaticDir();
   const dependencies = options.dependencies ?? {};
   const server = createServer((request, response) => {
@@ -203,6 +232,7 @@ export async function startWebServer(options: WebServerOptions = {}): Promise<St
       approvals,
       playgrounds,
       playgroundPortReservations,
+      packageSizeCache,
       staticDir,
       dependencies
     });
@@ -400,6 +430,65 @@ async function handleApi(
     return;
   }
 
+  const studioFilesDirectoryMatch = url.pathname.match(/^\/api\/plugins\/local\/([^/]+)\/files\/directory$/);
+  if (method === "GET" && studioFilesDirectoryMatch) {
+    const plugin = await requireLocalPlugin(decodeURIComponent(studioFilesDirectoryMatch[1]));
+    const relativePath = url.searchParams.get("path") ?? "";
+    sendJson(response, 200, await listStudioDirectory(plugin.path, relativePath));
+    return;
+  }
+
+  const studioIgnoreStateMatch = url.pathname.match(/^\/api\/plugins\/local\/([^/]+)\/ignore-state$/);
+  if (method === "GET" && studioIgnoreStateMatch) {
+    const plugin = await requireLocalPlugin(decodeURIComponent(studioIgnoreStateMatch[1]));
+    sendJson(response, 200, await readStudioIgnoreState(plugin.path));
+    return;
+  }
+
+  const studioPackageSizeMatch = url.pathname.match(/^\/api\/plugins\/local\/([^/]+)\/package-size$/);
+  if (method === "GET" && studioPackageSizeMatch) {
+    const plugin = await requireLocalPlugin(decodeURIComponent(studioPackageSizeMatch[1]));
+    sendJson(response, 200, readStudioPackageSize(plugin.path, context.packageSizeCache));
+    return;
+  }
+
+  const studioIgnoreRulesMatch = url.pathname.match(/^\/api\/plugins\/local\/([^/]+)\/ignore-rules$/);
+  if (method === "POST" && studioIgnoreRulesMatch) {
+    const plugin = await requireLocalPlugin(decodeURIComponent(studioIgnoreRulesMatch[1]));
+    const body = ignoreRuleSchema.parse(await readJson(request));
+    try {
+      await addPressshipIgnorePattern(path.resolve(plugin.path), body.pattern);
+      invalidateStudioPackageSize(plugin.path, context.packageSizeCache);
+      sendJson(response, 200, await readStudioIgnoreState(plugin.path));
+    } catch (error) {
+      sendJson(response, 400, {
+        error: {
+          message: error instanceof Error ? error.message : String(error),
+          code: "invalid_ignore_pattern"
+        }
+      });
+    }
+    return;
+  }
+
+  if (method === "DELETE" && studioIgnoreRulesMatch) {
+    const plugin = await requireLocalPlugin(decodeURIComponent(studioIgnoreRulesMatch[1]));
+    const body = ignoreRuleSchema.parse(await readJson(request));
+    try {
+      await removePressshipIgnorePattern(path.resolve(plugin.path), body.pattern);
+      invalidateStudioPackageSize(plugin.path, context.packageSizeCache);
+      sendJson(response, 200, await readStudioIgnoreState(plugin.path));
+    } catch (error) {
+      sendJson(response, 400, {
+        error: {
+          message: error instanceof Error ? error.message : String(error),
+          code: "invalid_ignore_pattern"
+        }
+      });
+    }
+    return;
+  }
+
   const studioCheckStateMatch = url.pathname.match(/^\/api\/plugins\/local\/([^/]+)\/check-state$/);
   if (method === "GET" && studioCheckStateMatch) {
     const localId = decodeURIComponent(studioCheckStateMatch[1]);
@@ -421,6 +510,7 @@ async function handleApi(
     const plugin = await requireLocalPlugin(localId);
     const body = writeStudioFileSchema.parse(await readJson(request));
     const saved = await writeStudioFile(plugin.path, body.path, body.content);
+    invalidateStudioPackageSize(plugin.path, context.packageSizeCache);
     sendJson(response, 200, {
       ...saved,
       checkState: await removeStudioPluginCheckFindingsForFiles(localId, [saved.path])
@@ -435,6 +525,7 @@ async function handleApi(
     const body = studioAiChangeSchema.parse(await readJson(request));
     try {
       const applied = await applyStudioAiChange(plugin.path, body);
+      invalidateStudioPackageSize(plugin.path, context.packageSizeCache);
       const checkState = await removeStudioPluginCheckFindingsForFiles(localId, [applied.path]);
       sendJson(response, 200, {
         ...applied,
@@ -457,6 +548,7 @@ async function handleApi(
     const localId = decodeURIComponent(bumpMatch[1]);
     const plugin = await requireLocalPlugin(localId);
     await bumpLocalPluginVersion(plugin.path, body.bump);
+    invalidateStudioPackageSize(plugin.path, context.packageSizeCache);
     await addLocalPluginPath(plugin.path, plugin.source);
     await removeStudioPluginCheckState(localId);
     sendJson(response, 200, { ...(await getVersionState(plugin.path)), checkState: null });
@@ -481,6 +573,7 @@ async function handleApi(
 
     try {
       await setLocalPluginVersion(plugin.path, trimmed);
+      invalidateStudioPackageSize(plugin.path, context.packageSizeCache);
       await addLocalPluginPath(plugin.path, plugin.source);
       await removeStudioPluginCheckState(localId);
       sendJson(response, 200, { ...(await getVersionState(plugin.path)), checkState: null });
@@ -910,12 +1003,13 @@ async function dryRunPublishJob(
     context.log("Release is blocked by version state.", versionState);
   }
 
+  const ignorePatterns = await readPressshipIgnorePatterns(source.rootDir);
   context.status("Validating package.");
-  const validation = await validatePluginPack(project, {});
+  const validation = await validatePluginPack(project, { ignore: ignorePatterns });
   const validationBlocked = hasBlockingFindings(validation.readmeFindings) || hasBlockingFindings(validation.pluginCheckFindings);
   const cacheDir = path.join(await ensureCacheDir(), "studio-packages");
   await mkdir(cacheDir, { recursive: true, mode: 0o700 });
-  const pack = summarizePackResult(await createPluginPack(source.rootDir, { outputDir: cacheDir }), validation);
+  const pack = summarizePackResult(await createPluginPack(source.rootDir, { outputDir: cacheDir, ignore: ignorePatterns }), validation);
   const releasePlan =
     route.action === "release"
       ? createReleaseCommandPlan(
@@ -932,7 +1026,8 @@ async function dryRunPublishJob(
         localId,
         pluginPath: source.inputDir,
         action: route.action,
-        version: project.version
+        version: project.version,
+        ignore: ignorePatterns
       })
     : undefined;
 
@@ -975,6 +1070,7 @@ async function confirmPublishJob(
     yes: true,
     submit: approval.action === "submit",
     release: approval.action === "release",
+    ignore: approval.ignore ?? [],
     overview: overview ?? project.headers.description ?? ""
   });
   approvals.delete(approvalId);
@@ -999,46 +1095,436 @@ async function readPluginDetail(scope: "remote" | "local", id: string) {
   };
 }
 
+const studioHiddenFilePatterns = [
+  "**/.git/**",
+  "**/.svn/**",
+  "**/node_modules/**",
+  "**/vendor/**",
+  "**/build/**",
+  "**/dist/**",
+  "**/playground/**",
+  "**/.wordpress-playground/**"
+];
+
+const maxStudioEditableFileBytes = 1_000_000;
+const studioAlwaysHiddenDirectoryNames = new Set([".git"]);
+const studioDeferredDirectoryNames = new Set([
+  ...hardIgnoreDirectories,
+  "vendor",
+  ".wordpress-playground",
+  "playground"
+]);
+const studioDeferredDirectoryPatterns = Array.from(studioDeferredDirectoryNames).flatMap((directory) => [
+  `${directory}/**`,
+  `**/${directory}/**`
+]);
+const studioEditableExtensions = new Set([
+  ".php",
+  ".js",
+  ".jsx",
+  ".ts",
+  ".tsx",
+  ".css",
+  ".scss",
+  ".sass",
+  ".html",
+  ".htm",
+  ".json",
+  ".md",
+  ".txt",
+  ".xml",
+  ".yml",
+  ".yaml",
+  ".po",
+  ".pot",
+  ".ini",
+  ".sh",
+  ".svg"
+]);
+const studioEditableFileNames = new Set([
+  "composer.json",
+  "package.json",
+  "readme.txt",
+  "license",
+  "license.txt",
+  pressshipIgnoreFile
+]);
+
 async function listStudioFiles(pluginPath: string) {
   const root = path.resolve(pluginPath);
-  const files = await fg(
-    [
-      "**/*.{php,js,jsx,ts,tsx,css,scss,sass,html,htm,json,md,txt,xml,yml,yaml,po,pot,ini,sh}",
-      "composer.json",
-      "package.json",
-      "readme.txt"
-    ],
-    {
+  const patterns = await readPressshipIgnorePatterns(root);
+  const matcher = createPressshipIgnoreMatcher(patterns);
+  const [files, deferredDirectories, ignoredDirectories] = await Promise.all([
+    fg("**/*", {
       cwd: root,
       onlyFiles: true,
-      dot: false,
+      dot: true,
       unique: true,
-      ignore: [
-        "**/.git/**",
-        "**/.svn/**",
-        "**/node_modules/**",
-        "**/vendor/**",
-        "**/build/**",
-        "**/dist/**",
-        "**/playground/**",
-        "**/.wordpress-playground/**"
-      ]
-    }
-  );
+      ignore: studioDeferredDirectoryPatterns
+    }),
+    listStudioDeferredDirectories(root, matcher),
+    listStudioIgnoredPatternDirectories(root, patterns, matcher)
+  ]);
+  const directories = mergeStudioDirectoryEntries([...deferredDirectories, ...ignoredDirectories]);
 
   const entries = await Promise.all(
     files.sort((a, b) => a.localeCompare(b)).map(async (relativePath) => {
+      const fileStats = await stat(path.join(root, relativePath));
+      const ignoredBy = matcher.ignoredBy(relativePath);
+      return {
+        path: relativePath,
+        name: path.basename(relativePath),
+        directory: path.dirname(relativePath) === "." ? "" : path.dirname(relativePath),
+        size: fileStats.size,
+        hardIgnored: isHardIgnoredPath(relativePath),
+        ignored: Boolean(ignoredBy),
+        ignoredBy
+      };
+    })
+  );
+
+  return { files: entries, directories };
+}
+
+async function listStudioDirectory(pluginPath: string, relativePath: string) {
+  const root = path.resolve(pluginPath);
+  const normalized = normalizeStudioRelativePath(relativePath);
+  if (!normalized) {
+    throw new Error("Choose a folder first.");
+  }
+  if (studioExplorerDirectoryIsAlwaysHidden(normalized)) {
+    return { files: [], directories: [] };
+  }
+
+  const directoryPath = path.resolve(root, normalized);
+  if (directoryPath !== root && !directoryPath.startsWith(`${root}${path.sep}`)) {
+    throw new Error("Folder is outside the plugin directory.");
+  }
+
+  const directoryStats = await stat(directoryPath);
+  if (!directoryStats.isDirectory()) {
+    throw new Error("Studio can only load folders.");
+  }
+
+  const patterns = await readPressshipIgnorePatterns(root);
+  const matcher = createPressshipIgnoreMatcher(patterns);
+  const ignoredBy = studioIgnoredBy(normalized, matcher);
+  const entries = await readdir(directoryPath, { withFileTypes: true });
+  const files: Array<{
+    path: string;
+    name: string;
+    directory: string;
+    size: number;
+    hardIgnored: boolean;
+    ignored: boolean;
+    ignoredBy?: string;
+  }> = [];
+  const directories: Array<{
+    path: string;
+    name: string;
+    directory: string;
+    deferred: boolean;
+    ignored: boolean;
+    ignoredBy?: string;
+    hardIgnored: boolean;
+  }> = [
+    {
+      path: normalized,
+      name: path.basename(normalized),
+      directory: path.dirname(normalized) === "." ? "" : path.dirname(normalized),
+      deferred: false,
+      ignored: Boolean(ignoredBy),
+      ignoredBy,
+      hardIgnored: isHardIgnoredPath(normalized)
+    }
+  ];
+
+  for (const entry of entries.sort((a, b) => a.name.localeCompare(b.name))) {
+    const childPath = `${normalized}/${entry.name}`;
+    if (studioExplorerDirectoryIsAlwaysHidden(childPath)) {
+      continue;
+    }
+
+    const childIgnoredBy = studioIgnoredBy(childPath, matcher);
+    if (entry.isDirectory()) {
+      directories.push({
+        path: childPath,
+        name: entry.name,
+        directory: normalized,
+        deferred: true,
+        ignored: Boolean(childIgnoredBy),
+        ignoredBy: childIgnoredBy,
+        hardIgnored: isHardIgnoredPath(childPath)
+      });
+      continue;
+    }
+    if (!entry.isFile()) {
+      continue;
+    }
+
+    const fileStats = await stat(path.join(directoryPath, entry.name));
+    files.push({
+      path: childPath,
+      name: entry.name,
+      directory: normalized,
+      size: fileStats.size,
+      hardIgnored: isHardIgnoredPath(childPath),
+      ignored: Boolean(childIgnoredBy),
+      ignoredBy: childIgnoredBy
+    });
+  }
+
+  return { files, directories };
+}
+
+async function listStudioDeferredDirectories(root: string, matcher: ReturnType<typeof createPressshipIgnoreMatcher>) {
+  const entries = await readdir(root, { withFileTypes: true });
+  return entries
+    .filter((entry) =>
+      entry.isDirectory() &&
+      studioDeferredDirectoryNames.has(entry.name) &&
+      !studioExplorerDirectoryIsAlwaysHidden(entry.name)
+    )
+    .sort((a, b) => a.name.localeCompare(b.name))
+    .map((entry) => {
+      const ignoredBy = isHardIgnoredPath(entry.name)
+        ? "Pressship package rules"
+        : matcher.ignoredBy(entry.name) ?? matcher.ignoredBy(`${entry.name}/.pressship-directory`);
+      return {
+        path: entry.name,
+        name: entry.name,
+        directory: "",
+        deferred: true,
+        ignored: Boolean(ignoredBy),
+        ignoredBy,
+        hardIgnored: isHardIgnoredPath(entry.name)
+      };
+    });
+}
+
+async function listStudioIgnoredPatternDirectories(
+  root: string,
+  patterns: string[],
+  matcher: ReturnType<typeof createPressshipIgnoreMatcher>
+) {
+  const candidates = Array.from(new Set(patterns.flatMap(studioIgnoredDirectoryCandidates)));
+  const entries = await Promise.all(
+    candidates.map(async (relativePath) => {
+      if (studioExplorerDirectoryIsAlwaysHidden(relativePath)) {
+        return undefined;
+      }
+      const absolutePath = path.join(root, relativePath);
+      if (!pathExists(absolutePath)) {
+        return undefined;
+      }
+      const entryStats = await stat(absolutePath);
+      if (!entryStats.isDirectory()) {
+        return undefined;
+      }
+      const ignoredBy = matcher.ignoredBy(relativePath) ?? matcher.ignoredBy(`${relativePath}/.pressship-directory`);
+      if (!ignoredBy) {
+        return undefined;
+      }
+      return {
+        path: relativePath,
+        name: path.basename(relativePath),
+        directory: path.dirname(relativePath) === "." ? "" : path.dirname(relativePath),
+        deferred: false,
+        ignored: true,
+        ignoredBy,
+        hardIgnored: isHardIgnoredPath(relativePath)
+      };
+    })
+  );
+
+  return entries
+    .filter((entry): entry is NonNullable<typeof entry> => Boolean(entry))
+    .sort((a, b) => a.path.localeCompare(b.path));
+}
+
+function studioIgnoredDirectoryCandidates(pattern: string): string[] {
+  const trimmed = pattern.trim();
+  if (!trimmed || trimmed.startsWith("!")) {
+    return [];
+  }
+
+  let candidate = "";
+  if (trimmed.endsWith("/**")) {
+    candidate = trimmed.slice(0, -3);
+  } else if (trimmed.endsWith("/")) {
+    candidate = trimmed.slice(0, -1);
+  } else if (!hasStudioGlobMagic(trimmed)) {
+    candidate = trimmed;
+  }
+
+  candidate = candidate.replace(/^\.\/+/, "").replace(/\/+$/, "");
+  if (!candidate || candidate === "." || hasStudioGlobMagic(candidate)) {
+    return [];
+  }
+
+  return [candidate];
+}
+
+function hasStudioGlobMagic(value: string): boolean {
+  return /[*?[\]{}]/.test(value);
+}
+
+function studioIgnoredBy(relativePath: string, matcher: ReturnType<typeof createPressshipIgnoreMatcher>): string | undefined {
+  return isHardIgnoredPath(relativePath)
+    ? "Pressship package rules"
+    : matcher.ignoredBy(relativePath);
+}
+
+function studioExplorerDirectoryIsAlwaysHidden(relativePath: string): boolean {
+  return relativePath
+    .split("/")
+    .filter(Boolean)
+    .some((segment) => studioAlwaysHiddenDirectoryNames.has(segment));
+}
+
+function mergeStudioDirectoryEntries<T extends {
+  path: string;
+  ignored?: boolean;
+  ignoredBy?: string;
+  deferred?: boolean;
+  hardIgnored?: boolean;
+}>(entries: T[]): T[] {
+  const merged = new Map<string, T>();
+  for (const entry of entries) {
+    const existing = merged.get(entry.path);
+    if (!existing) {
+      merged.set(entry.path, entry);
+      continue;
+    }
+
+    merged.set(entry.path, {
+      ...existing,
+      ...entry,
+      deferred: Boolean(existing.deferred || entry.deferred),
+      ignored: Boolean(existing.ignored || entry.ignored),
+      ignoredBy: existing.hardIgnored ? existing.ignoredBy : entry.ignoredBy ?? existing.ignoredBy,
+      hardIgnored: Boolean(existing.hardIgnored || entry.hardIgnored)
+    });
+  }
+
+  return Array.from(merged.values()).sort((a, b) => a.path.localeCompare(b.path));
+}
+
+async function readStudioIgnoreState(pluginPath: string) {
+  const root = path.resolve(pluginPath);
+  const patterns = await readPressshipIgnorePatterns(root);
+  const ignoredFiles = await listStudioIgnoredFiles(root, patterns);
+
+  return {
+    ignorePath: path.join(root, pressshipIgnoreFile),
+    patterns,
+    ignoredFiles
+  };
+}
+
+async function listStudioIgnoredFiles(root: string, patterns: string[]) {
+  if (!patterns.length) {
+    return [];
+  }
+
+  const matcher = createPressshipIgnoreMatcher(patterns);
+  const files = await fg("**/*", {
+    cwd: root,
+    onlyFiles: true,
+    dot: false,
+    unique: true,
+    ignore: studioHiddenFilePatterns
+  });
+  const ignored = files
+    .map((relativePath) => ({ relativePath, ignoredBy: matcher.ignoredBy(relativePath) }))
+    .filter((entry): entry is { relativePath: string; ignoredBy: string } => Boolean(entry.ignoredBy));
+
+  const entries = await Promise.all(
+    ignored.sort((a, b) => a.relativePath.localeCompare(b.relativePath)).map(async ({ relativePath, ignoredBy }) => {
       const fileStats = await stat(path.join(root, relativePath));
       return {
         path: relativePath,
         name: path.basename(relativePath),
         directory: path.dirname(relativePath) === "." ? "" : path.dirname(relativePath),
-        size: fileStats.size
+        size: fileStats.size,
+        ignoredBy
       };
     })
   );
 
-  return { files: entries.filter((entry) => entry.size <= 1_000_000) };
+  return entries;
+}
+
+function readStudioPackageSize(pluginPath: string, cache: Map<string, StudioPackageSizeCacheEntry>) {
+  const source = resolvePluginProjectPath(pluginPath);
+  const key = source.rootDir;
+  const cached = cache.get(key);
+  if (cached) {
+    return publicStudioPackageSizeEntry(cached);
+  }
+
+  const entry: StudioPackageSizeCacheEntry = {
+    status: "calculating",
+    requestedAt: new Date().toISOString()
+  };
+  cache.set(key, entry);
+  entry.promise = calculateStudioPackageSize(source.rootDir)
+    .then((result) => {
+      entry.status = "ready";
+      entry.result = result;
+      entry.error = undefined;
+      entry.updatedAt = new Date().toISOString();
+    })
+    .catch((error) => {
+      entry.status = "error";
+      entry.error = error instanceof Error ? error.message : String(error);
+      entry.updatedAt = new Date().toISOString();
+    });
+
+  return publicStudioPackageSizeEntry(entry);
+}
+
+function invalidateStudioPackageSize(pluginPath: string, cache: Map<string, StudioPackageSizeCacheEntry>) {
+  cache.delete(resolvePluginProjectPath(pluginPath).rootDir);
+}
+
+async function calculateStudioPackageSize(rootDir: string): Promise<StudioPackageSizeResult> {
+  const project = await discoverPluginProject(rootDir);
+  const ignorePatterns = await readPressshipIgnorePatterns(rootDir);
+  const analysis = await analyzePluginPackage(project, { ignore: ignorePatterns });
+
+  return {
+    sizeBytes: analysis.sizeBytes,
+    maxSizeBytes: analysis.maxSizeBytes,
+    overLimit: analysis.overLimit,
+    fileCount: analysis.files.length,
+    topLevelFolder: analysis.topLevelFolder,
+    largestFiles: analysis.largestFiles
+  };
+}
+
+function publicStudioPackageSizeEntry(entry: StudioPackageSizeCacheEntry) {
+  if (entry.status === "ready" && entry.result) {
+    return {
+      status: "ready",
+      cached: true,
+      calculatedAt: entry.updatedAt,
+      ...entry.result
+    };
+  }
+  if (entry.status === "error") {
+    return {
+      status: "error",
+      cached: true,
+      error: entry.error ?? "Package size could not be calculated.",
+      calculatedAt: entry.updatedAt
+    };
+  }
+  return {
+    status: "calculating",
+    cached: false,
+    requestedAt: entry.requestedAt
+  };
 }
 
 async function readStudioFile(pluginPath: string, relativePath: string) {
@@ -1159,12 +1645,22 @@ async function resolveStudioFilePath(pluginPath: string, relativePath: string): 
   if (!fileStats.isFile()) {
     throw new Error("Studio can only open files.");
   }
+  if (fileStats.size > maxStudioEditableFileBytes) {
+    throw new Error(
+      `Studio can list ${normalized}, but files larger than 1 MB are not opened in the editor.`
+    );
+  }
 
   return filePath;
 }
 
 function normalizeStudioRelativePath(relativePath: string): string {
   return relativePath.replace(/\\/g, "/").replace(/^\/+/, "").split("/").filter(Boolean).join("/");
+}
+
+function isStudioEditablePath(relativePath: string): boolean {
+  const name = path.basename(relativePath).toLowerCase();
+  return studioEditableFileNames.has(name) || studioEditableExtensions.has(path.extname(name));
 }
 
 async function selectFolder(): Promise<string> {
@@ -1637,7 +2133,7 @@ async function snapshotStudioFileContents(pluginPath: string): Promise<Map<strin
   const root = path.resolve(pluginPath);
   const { files } = await listStudioFiles(root);
   const entries = await Promise.all(
-    files.map(async (file) => {
+    files.filter((file) => file.size <= maxStudioEditableFileBytes && isStudioEditablePath(file.path)).map(async (file) => {
       const filePath = path.join(root, file.path);
       const [fileStats, content] = await Promise.all([stat(filePath), readFile(filePath, "utf8")]);
       return [

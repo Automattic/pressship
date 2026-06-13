@@ -1,22 +1,36 @@
 import { createWriteStream } from "node:fs";
-import { cp, mkdir, rm, stat } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, rm, stat } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import fg from "fast-glob";
 import { ZipFile } from "yazl";
 import type { PackageResult, PluginProject } from "../types.js";
+import { formatBytes } from "../utils/format.js";
 import { getDefaultBuildDir } from "../utils/paths.js";
-import { createIgnoreFilter } from "./ignore.js";
+import { createIgnoreFilter, hardIgnorePatterns } from "./ignore.js";
 
-const maxSubmissionSizeBytes = 10 * 1024 * 1024;
+export const maxSubmissionSizeBytes = 10 * 1024 * 1024;
 
 export type PackageOptions = {
   outputDir?: string;
   ignore?: string[];
+  allowOversize?: boolean;
 };
 
 export type StageResult = {
   path: string;
   files: string[];
+};
+
+export type PackageFileSize = {
+  path: string;
+  sizeBytes: number;
+};
+
+export type PackageAnalysis = PackageResult & {
+  maxSizeBytes: number;
+  overLimit: boolean;
+  largestFiles: PackageFileSize[];
 };
 
 export async function createPluginZip(
@@ -31,10 +45,8 @@ export async function createPluginZip(
   await writeZip(project.rootDir, project.slug, files, zipPath);
   const zipStat = await stat(zipPath);
 
-  if (zipStat.size > maxSubmissionSizeBytes) {
-    throw new Error(
-      `Submission zip is larger than 10 MB (${zipStat.size} bytes). WordPress.org requires uploads under 10 MB.`
-    );
+  if (!options.allowOversize && zipStat.size > maxSubmissionSizeBytes) {
+    throw new Error(await oversizedPackageMessage(project.rootDir, files, zipStat.size));
   }
 
   return {
@@ -54,10 +66,33 @@ export async function listPackageFiles(
     cwd: rootDir,
     onlyFiles: true,
     dot: true,
-    unique: true
+    unique: true,
+    ignore: hardIgnorePatterns
   });
 
   return files.filter(includeFile).sort();
+}
+
+export async function analyzePluginPackage(
+  project: PluginProject,
+  options: Pick<PackageOptions, "ignore"> = {}
+): Promise<PackageAnalysis> {
+  const outputDir = await mkdtemp(path.join(tmpdir(), "pressship-package-analysis-"));
+  try {
+    const result = await createPluginZip(project, {
+      outputDir,
+      ignore: options.ignore,
+      allowOversize: true
+    });
+    return {
+      ...result,
+      maxSizeBytes: maxSubmissionSizeBytes,
+      overLimit: result.sizeBytes > maxSubmissionSizeBytes,
+      largestFiles: await largestPackageFiles(project.rootDir, result.files)
+    };
+  } finally {
+    await rm(outputDir, { recursive: true, force: true });
+  }
 }
 
 export async function stagePluginDirectory(
@@ -105,4 +140,24 @@ async function writeZip(
 
     archive.end();
   });
+}
+
+async function oversizedPackageMessage(rootDir: string, files: string[], sizeBytes: number): Promise<string> {
+  const largestFiles = await largestPackageFiles(rootDir, files, 5);
+  const largestSummary = largestFiles.length
+    ? ` Largest included files: ${largestFiles
+        .map((file) => `${file.path} (${formatBytes(file.sizeBytes)})`)
+        .join(", ")}.`
+    : "";
+  return `Submission zip is larger than 10 MB (${formatBytes(sizeBytes)} / ${sizeBytes} bytes). WordPress.org requires uploads under 10 MB.${largestSummary} Add non-release files to .pressshipignore or pass --ignore=<glob>.`;
+}
+
+async function largestPackageFiles(rootDir: string, files: string[], limit = 8): Promise<PackageFileSize[]> {
+  const sizes = await Promise.all(
+    files.map(async (file) => ({
+      path: file,
+      sizeBytes: (await stat(path.join(rootDir, file))).size
+    }))
+  );
+  return sizes.sort((a, b) => b.sizeBytes - a.sizeBytes).slice(0, limit);
 }

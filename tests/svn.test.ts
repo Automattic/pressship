@@ -37,7 +37,11 @@ describe("SVN release planning", () => {
           "/tmp/example-plugin-svn"
         ]
       },
-      { command: "svn", args: ["add", "--force", "."], cwd: "/tmp/example-plugin-svn" },
+      {
+        command: "svn",
+        args: ["add", "--force", "trunk/<package-included-files>", "assets/<wordpress-org-assets>"],
+        cwd: "/tmp/example-plugin-svn"
+      },
       { command: "svn", args: ["copy", "trunk", "tags/1.2.3"], cwd: "/tmp/example-plugin-svn" },
       { command: "svn", args: ["update"], cwd: "/tmp/example-plugin-svn" },
       { command: "svn", args: ["status"], cwd: "/tmp/example-plugin-svn" },

@@ -3,6 +3,7 @@
 let token = document.querySelector('meta[name="pressship-token"]').content;
 
 let markdownParser = basicMarkdownToHtml;
+let studioPackageSizePollTimer = null;
 
 void import("/vendor/marked.esm.js")
   .then(({ marked }) => {
@@ -231,6 +232,29 @@ function createInitialStudioRelease() {
   };
 }
 
+function createInitialStudioIgnoreState() {
+  return {
+    ignorePath: "",
+    patterns: [],
+    ignoredFiles: []
+  };
+}
+
+function createInitialStudioPackageSize() {
+  return {
+    loading: false,
+    error: "",
+    sizeBytes: null,
+    maxSizeBytes: 10 * 1024 * 1024,
+    overLimit: false,
+    fileCount: 0,
+    topLevelFolder: "",
+    largestFiles: [],
+    calculatedAt: null,
+    stale: false
+  };
+}
+
 function applyStudioLayout(root) {
   if (!root) {
     return;
@@ -400,6 +424,7 @@ const state = {
     id: null,
     plugin: null,
     files: [],
+    directories: [],
     selectedFile: null,
     fileContent: "",
     draftContent: "",
@@ -420,6 +445,8 @@ const state = {
     openFiles: [],
     terminalOpen: true,
     collapsedFolders: new Set(),
+    expandedIgnoredFolders: new Set(),
+    loadingFolders: new Set(),
     terminal: [],
     aiPrompt: "",
     aiJobId: null,
@@ -438,6 +465,12 @@ const state = {
     sidebarTab: "ai",
     playgroundVersionModal: null,
     release: createInitialStudioRelease(),
+    ignoreState: createInitialStudioIgnoreState(),
+    packageSize: createInitialStudioPackageSize(),
+    ignoreLoading: false,
+    ignoreError: "",
+    ignoreBusyPattern: "",
+    ignoreBusyPath: "",
     pendingConfirms: new Map()
   },
   activeView: "dashboard",
@@ -504,6 +537,9 @@ const ROUTE_VIEW_ALIASES = {
 };
 let applyingLocationRoute = false;
 let initialRouteLoaderVisible = false;
+let studioFileSyncInFlight = false;
+let studioLastExternalSyncAt = 0;
+let studioLastDiskConflictKey = "";
 
 document.querySelectorAll("[data-kbd-mod]").forEach((node) => {
   node.textContent = isMac ? "⌘" : "Ctrl+";
@@ -564,6 +600,14 @@ document.addEventListener("keydown", (event) => {
     return;
   }
 
+  if (mod && event.key.toLowerCase() === "s" && !event.shiftKey && !event.altKey && state.activeView === "studio") {
+    event.preventDefault();
+    if (canSaveStudioFile()) {
+      void saveStudioFile();
+    }
+    return;
+  }
+
   if (event.key === "Escape" && state.command.open) {
     event.preventDefault();
     closeCommandPalette();
@@ -609,6 +653,16 @@ els.commandInput?.addEventListener("input", () => {
 
 window.addEventListener("popstate", () => {
   void applyLocationRoute({ replaceRoute: true });
+});
+
+window.addEventListener("focus", () => {
+  syncSelectedStudioFileOnResume();
+});
+
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden) {
+    syncSelectedStudioFileOnResume();
+  }
 });
 
 function normalizeViewId(view) {
@@ -722,6 +776,7 @@ function primeInitialRouteState(route) {
     id: route.studio.project,
     plugin: { slug: route.studio.project, name: route.studio.project },
     files: [],
+    directories: [],
     selectedFile: filePath
       ? {
           path: filePath,
@@ -743,6 +798,8 @@ function primeInitialRouteState(route) {
     openFiles: filePath ? [filePath] : [],
     terminal: [`Opening ${route.studio.project} from URL...`],
     collapsedFolders: new Set(),
+    expandedIgnoredFolders: new Set(),
+    loadingFolders: new Set(),
     pendingConfirms: new Map()
   };
 }
@@ -926,12 +983,30 @@ async function runAction(name, element) {
         await selectStudioFile(element.dataset.path);
         return;
 
+      case "studio-ignore-file":
+        await addStudioIgnoreRule(studioFileIgnorePattern(element.dataset.path), {
+          path: element.dataset.path,
+          label: element.dataset.path
+        });
+        return;
+
+      case "studio-ignore-folder":
+        await addStudioIgnoreRule(studioFolderIgnorePattern(element.dataset.path), {
+          path: element.dataset.path,
+          label: `${element.dataset.path}/`
+        });
+        return;
+
+      case "studio-unignore-rule":
+        await removeStudioIgnoreRule(element.dataset.pattern);
+        return;
+
       case "studio-close-file-tab":
         await closeStudioFileTab(element.dataset.path);
         return;
 
       case "studio-toggle-folder":
-        toggleStudioFolder(element.dataset.folder);
+        await toggleStudioFolder(element.dataset.folder);
         return;
 
       case "studio-toggle-terminal":
@@ -956,6 +1031,10 @@ async function runAction(name, element) {
 
       case "studio-check":
         await runStudioCheck();
+        return;
+
+      case "studio-package-size":
+        await refreshStudioPackageSize({ force: true, notify: true });
         return;
 
       case "studio-toggle-theme":
@@ -1075,7 +1154,10 @@ async function runAction(name, element) {
         return;
 
       case "studio-release-refresh":
-        await loadStudioReleaseTags({ force: true });
+        await Promise.all([
+          loadStudioReleaseTags({ force: true }),
+          refreshStudioIgnoreState({ files: true })
+        ]);
         return;
 
       case "studio-release-switch":
@@ -1437,6 +1519,7 @@ async function openStudio(scope, id, options = {}) {
     id,
     plugin: null,
     files: [],
+    directories: [],
     selectedFile: null,
     fileContent: "",
     draftContent: "",
@@ -1457,6 +1540,8 @@ async function openStudio(scope, id, options = {}) {
     openFiles: [],
     terminalOpen: true,
     collapsedFolders: new Set(),
+    expandedIgnoredFolders: new Set(),
+    loadingFolders: new Set(),
     terminal: [`Pressship Studio opened for ${scope === "local" ? "local plugin" : "WordPress.org plugin"} ${id}.`],
     aiPrompt: "",
     aiJobId: null,
@@ -1475,6 +1560,12 @@ async function openStudio(scope, id, options = {}) {
     sidebarTab,
     playgroundVersionModal: null,
     release: createInitialStudioRelease(),
+    ignoreState: createInitialStudioIgnoreState(),
+    packageSize: createInitialStudioPackageSize(),
+    ignoreLoading: false,
+    ignoreError: "",
+    ignoreBusyPattern: "",
+    ignoreBusyPath: "",
     pendingConfirms: new Map()
   };
   saveStudioSidebarTab(pluginKey, sidebarTab);
@@ -1490,12 +1581,15 @@ async function openStudio(scope, id, options = {}) {
     state.studio.loading = false;
 
     if (scope === "local") {
-      const [result, checkState] = await Promise.all([
+      const [result, checkState, ignoreState] = await Promise.all([
         api(`/api/plugins/local/${encodeURIComponent(id)}/files`),
-        api(`/api/plugins/local/${encodeURIComponent(id)}/check-state`).catch(() => ({ state: null }))
+        api(`/api/plugins/local/${encodeURIComponent(id)}/check-state`).catch(() => ({ state: null })),
+        api(`/api/plugins/local/${encodeURIComponent(id)}/ignore-state`).catch(() => createInitialStudioIgnoreState())
       ]);
       state.studio.files = result.files ?? [];
+      state.studio.directories = result.directories ?? [];
       applyStudioCheckState(checkState.state);
+      applyStudioIgnoreState(ignoreState);
       renderStudio();
       const requestedFile = options.filePath
         ? state.studio.files.find((file) => file.path === options.filePath)
@@ -1516,6 +1610,7 @@ async function openStudio(scope, id, options = {}) {
           updateRouteFromState({ replace: options.replaceRoute });
         }
       }
+      void refreshStudioPackageSize({ render: true });
     } else {
       state.studio.files = [{ path: "readme.txt", name: "readme.txt", directory: "", size: detail.readme?.length ?? 0 }];
       state.studio.selectedFile = state.studio.files[0];
@@ -1587,7 +1682,88 @@ async function selectStudioFile(relativePath, options = {}) {
     remountStudioEditorIfNeeded();
   } catch (error) {
     appendStudioTerminal(error.message, "error");
+    state.studio.fileContent = `Cannot open ${relativePath}.\n\n${error.message}`;
+    state.studio.draftContent = state.studio.fileContent;
+    state.studio.dirty = false;
     renderStudio();
+    remountStudioEditorIfNeeded();
+  }
+}
+
+function syncSelectedStudioFileOnResume() {
+  if (Date.now() - studioLastExternalSyncAt < 1200) {
+    return;
+  }
+  studioLastExternalSyncAt = Date.now();
+  void syncSelectedStudioFileFromDisk({ reason: "external" });
+}
+
+async function syncSelectedStudioFileFromDisk(options = {}) {
+  if (
+    studioFileSyncInFlight ||
+    state.studio.scope !== "local" ||
+    !state.studio.id ||
+    !state.studio.selectedFile?.path ||
+    state.studio.activeTab !== "editor" ||
+    state.studio.loading ||
+    state.studio.readOnly ||
+    studioAiChangedFile(state.studio.selectedFile.path)
+  ) {
+    return false;
+  }
+
+  const selectedPath = state.studio.selectedFile.path;
+  studioFileSyncInFlight = true;
+  captureStudioEditorValue();
+
+  try {
+    const result = await api(
+      `/api/plugins/local/${encodeURIComponent(state.studio.id)}/files/content?path=${encodeURIComponent(selectedPath)}`
+    );
+    if (state.studio.selectedFile?.path !== selectedPath) {
+      return false;
+    }
+
+    const diskContent = result.content ?? "";
+    if (diskContent === state.studio.fileContent) {
+      return false;
+    }
+
+    if (state.studio.dirty && state.studio.draftContent !== diskContent) {
+      const conflictKey = `${selectedPath}:${diskContent.length}:${diskContent.slice(0, 80)}`;
+      if (studioLastDiskConflictKey !== conflictKey) {
+        studioLastDiskConflictKey = conflictKey;
+        appendStudioTerminal(
+          `${selectedPath} changed on disk. Your unsaved editor changes were kept.`,
+          "warning"
+        );
+        notice(`${selectedPath} changed on disk. Unsaved editor changes were kept.`, "warning");
+      }
+      return false;
+    }
+
+    studioLastDiskConflictKey = "";
+    state.studio.selectedFile =
+      state.studio.files.find((file) => file.path === result.path) ?? state.studio.selectedFile;
+    state.studio.fileContent = diskContent;
+    state.studio.draftContent = diskContent;
+    state.studio.dirty = false;
+    renderStudio();
+    remountStudioEditorIfNeeded();
+    updateStudioControls();
+    if (options.reason === "ignore-rule") {
+      appendStudioTerminal(`Reloaded ${selectedPath} after ignore rules changed.`, "success");
+    } else if (options.reason === "external") {
+      appendStudioTerminal(`Reloaded ${selectedPath} from disk.`, "status");
+    }
+    return true;
+  } catch (error) {
+    if (options.reportErrors) {
+      appendStudioTerminal(`Could not refresh ${selectedPath}: ${error.message}`, "error");
+    }
+    return false;
+  } finally {
+    studioFileSyncInFlight = false;
   }
 }
 
@@ -1623,6 +1799,10 @@ async function saveStudioFile() {
     state.studio.draftContent = content;
     state.studio.dirty = false;
     appendStudioTerminal(`Saved ${state.studio.selectedFile.path}.`, "success");
+    markStudioPackageSizeStale();
+    if (state.studio.selectedFile.path === ".pressshipignore") {
+      await refreshStudioIgnoreState({ files: true, render: false });
+    }
     renderStudio();
     remountStudioEditorIfNeeded();
     updateStudioControls();
@@ -1887,6 +2067,10 @@ async function acceptStudioAiChange(filePath) {
       applyStudioCheckState(result.checkState);
     }
     state.studio.files = result.files ?? state.studio.files;
+    state.studio.directories = result.directories ?? state.studio.directories;
+    if (change.path === ".pressshipignore") {
+      await refreshStudioIgnoreState({ files: true, render: false });
+    }
     removeStudioAiChangedFile(change.path);
     if (state.studio.selectedFile?.path === change.path) {
       if (change.status === "deleted") {
@@ -2047,8 +2231,9 @@ function renderStudio() {
     return;
   }
 
-  const fileList = state.studio.files.length
-    ? renderStudioFileTree(buildStudioFileTree(state.studio.files))
+  const hasExplorerEntries = state.studio.files.length || state.studio.directories.length;
+  const fileList = hasExplorerEntries
+    ? renderStudioFileTree(buildStudioFileTree(state.studio.files, state.studio.directories))
     : `<p class="studio-muted">No editable text files found.</p>`;
   const playgroundPort = state.studio.playgroundUrl ? new URL(state.studio.playgroundUrl).port : "";
   const panels = normalizeStudioPanelState(state.studio.panels);
@@ -2061,30 +2246,37 @@ function renderStudio() {
           <span>${escapeHtml(source)}</span>
         </div>
         <div class="studio-title-actions">
-          <button class="studio-layout-button${panels.files ? " is-active" : ""}" type="button" data-action="studio-toggle-files" aria-pressed="${panels.files ? "true" : "false"}" title="${panels.files ? "Hide Explorer" : "Show Explorer"}">
-            <span class="dashicons dashicons-align-left" aria-hidden="true"></span>
-          </button>
-          ${renderStudioPlayButton()}
-          <span class="studio-preview-state${state.studio.running ? " is-loading" : state.studio.playgroundUrl ? " is-ready" : ""}">
-            <span aria-hidden="true"></span>
-            ${escapeHtml(studioPreviewStateLabel())}
-          </span>
-          <button class="studio-icon-button" type="button" data-action="studio-toggle-terminal" aria-pressed="${state.studio.terminalOpen ? "true" : "false"}" title="${state.studio.terminalOpen ? "Hide terminal" : "Show terminal"}">
-            <span class="dashicons dashicons-editor-kitchensink" aria-hidden="true"></span>
-            <span>Terminal</span>
-          </button>
-          <button class="studio-layout-button${panels.sidebar ? " is-active" : ""}" type="button" data-action="studio-toggle-sidebar" aria-pressed="${panels.sidebar ? "true" : "false"}" title="${panels.sidebar ? "Hide Secondary Side Bar" : "Show Secondary Side Bar"}">
-            <span class="dashicons dashicons-align-right" aria-hidden="true"></span>
-          </button>
-          <button class="studio-action-button" type="button" data-action="studio-save" id="studio-save-button" disabled>
-            <span class="dashicons dashicons-saved" aria-hidden="true"></span>
-            Save
-          </button>
-          <button class="studio-action-button" type="button" data-action="studio-check" id="studio-check-button" disabled>
-            <span class="dashicons dashicons-yes-alt" aria-hidden="true"></span>
-            Check
-          </button>
-          ${renderStudioThemeToggle()}
+          <div class="studio-toolbar-group studio-toolbar-layout" aria-label="Workbench layout">
+            <button class="studio-layout-button${panels.files ? " is-active" : ""}" type="button" data-action="studio-toggle-files" aria-pressed="${panels.files ? "true" : "false"}" aria-label="${panels.files ? "Hide Explorer" : "Show Explorer"}" title="${panels.files ? "Hide Explorer" : "Show Explorer"}">
+              <span class="dashicons dashicons-align-left" aria-hidden="true"></span>
+            </button>
+            <button class="studio-icon-button studio-compact-button" type="button" data-action="studio-toggle-terminal" aria-pressed="${state.studio.terminalOpen ? "true" : "false"}" aria-label="${state.studio.terminalOpen ? "Hide Terminal" : "Show Terminal"}" title="${state.studio.terminalOpen ? "Hide Terminal" : "Show Terminal"}">
+              <span class="dashicons dashicons-editor-kitchensink" aria-hidden="true"></span>
+              <span>Terminal</span>
+            </button>
+            <button class="studio-layout-button${panels.sidebar ? " is-active" : ""}" type="button" data-action="studio-toggle-sidebar" aria-pressed="${panels.sidebar ? "true" : "false"}" aria-label="${panels.sidebar ? "Hide Secondary Side Bar" : "Show Secondary Side Bar"}" title="${panels.sidebar ? "Hide Secondary Side Bar" : "Show Secondary Side Bar"}">
+              <span class="dashicons dashicons-align-right" aria-hidden="true"></span>
+            </button>
+          </div>
+          <div class="studio-toolbar-group studio-toolbar-run" aria-label="Playground">
+            ${renderStudioPlayButton()}
+            <span class="studio-preview-state${state.studio.running ? " is-loading" : state.studio.playgroundUrl ? " is-ready" : ""}" title="${escapeAttr(studioPreviewStateTitle())}">
+              <span aria-hidden="true"></span>
+              <em>${escapeHtml(studioPreviewStateLabel())}</em>
+            </span>
+          </div>
+          <div class="studio-toolbar-group studio-toolbar-actions" aria-label="Editor actions">
+            <button class="studio-action-button studio-compact-button" type="button" data-action="studio-save" id="studio-save-button" aria-label="${escapeAttr(`Save ${studioSaveShortcutLabel()}`)}" aria-keyshortcuts="${escapeAttr(studioSaveAriaShortcut())}" title="${escapeAttr(`Save ${studioSaveShortcutLabel()}`)}" disabled>
+              <span class="dashicons dashicons-saved" aria-hidden="true"></span>
+              <span>Save</span>
+            </button>
+            <button class="studio-action-button studio-compact-button" type="button" data-action="studio-check" id="studio-check-button" aria-label="Run Plugin Check" title="Run Plugin Check" disabled>
+              <span class="dashicons dashicons-yes-alt" aria-hidden="true"></span>
+              <span>Check</span>
+            </button>
+            ${renderStudioPackageSizeButton()}
+            ${renderStudioThemeToggle()}
+          </div>
         </div>
       </header>
       <div class="studio-main">
@@ -2478,6 +2670,68 @@ function renderStudioPlayButton() {
   `;
 }
 
+function studioSaveShortcutLabel() {
+  return isMac ? "(⌘S)" : "(Ctrl+S)";
+}
+
+function studioSaveAriaShortcut() {
+  return isMac ? "Meta+S" : "Control+S";
+}
+
+function renderStudioPackageSizeButton() {
+  if (state.studio.scope !== "local") {
+    return "";
+  }
+  const packageSize = state.studio.packageSize ?? createInitialStudioPackageSize();
+  const hasSize = Number.isFinite(packageSize.sizeBytes);
+  const label = packageSize.loading
+    ? "Sizing"
+    : hasSize
+      ? formatStudioBytes(packageSize.sizeBytes)
+      : "Size";
+  const icon = packageSize.loading
+    ? "dashicons-update"
+    : packageSize.error
+      ? "dashicons-warning"
+      : "dashicons-archive";
+  const className = [
+    "studio-action-button",
+    "studio-compact-button",
+    "studio-package-size-button",
+    packageSize.loading ? "is-loading" : "",
+    packageSize.overLimit ? "is-over-limit" : "",
+    packageSize.stale ? "is-stale" : "",
+    packageSize.error ? "has-error" : ""
+  ].filter(Boolean).join(" ");
+
+  return `
+    <button class="${escapeAttr(className)}" type="button" data-action="studio-package-size" id="studio-package-size-button" title="${escapeAttr(studioPackageSizeTitle(packageSize))}" ${packageSize.loading ? "disabled aria-busy=\"true\"" : ""}>
+      <span class="dashicons ${escapeAttr(icon)}" aria-hidden="true"></span>
+      <span>${escapeHtml(label)}</span>
+    </button>
+  `;
+}
+
+function studioPackageSizeTitle(packageSize) {
+  if (packageSize.loading) {
+    return "Calculating package size";
+  }
+  if (packageSize.error) {
+    return `Package size failed: ${packageSize.error}`;
+  }
+  if (!Number.isFinite(packageSize.sizeBytes)) {
+    return "Calculate package size";
+  }
+  const limit = formatStudioBytes(packageSize.maxSizeBytes || 10 * 1024 * 1024);
+  const status = packageSize.overLimit ? `Over the ${limit} WordPress.org limit` : `Under the ${limit} WordPress.org limit`;
+  const stale = packageSize.stale ? " Stale: recalculate after recent file or ignore changes." : "";
+  const largest = (packageSize.largestFiles ?? []).slice(0, 3);
+  const largestText = largest.length
+    ? ` Largest: ${largest.map((file) => `${file.path} (${formatStudioBytes(file.sizeBytes)})`).join(", ")}.`
+    : "";
+  return `${formatStudioBytes(packageSize.sizeBytes)} across ${packageSize.fileCount ?? 0} packaged files. ${status}.${largestText}${stale}`;
+}
+
 function renderStudioThemeToggle() {
   const theme = studioTheme();
   const isLight = theme === "light";
@@ -2495,12 +2749,22 @@ function renderStudioThemeToggle() {
 
 function studioPreviewStateLabel() {
   if (state.studio.running) {
+    return "Starting";
+  }
+  if (state.studio.playgroundUrl) {
+    return "Ready";
+  }
+  return "Idle";
+}
+
+function studioPreviewStateTitle() {
+  if (state.studio.running) {
     return "Starting Playground";
   }
   if (state.studio.playgroundUrl) {
     return "Playground ready";
   }
-  return "Not started";
+  return "Playground not started";
 }
 
 function studioEditorStatusLabel() {
@@ -2618,22 +2882,133 @@ function toggleStudioTheme() {
   requestAnimationFrame(() => state.studio.editor?.layout?.());
 }
 
-function toggleStudioFolder(folderPath) {
+async function toggleStudioFolder(folderPath) {
   if (!folderPath) {
     return;
   }
+  const normalized = String(folderPath ?? "").replace(/\/+$/, "");
   captureStudioEditorValue();
-  if (state.studio.collapsedFolders.has(folderPath)) {
-    state.studio.collapsedFolders.delete(folderPath);
+  const directory = state.studio.directories?.find((entry) => entry.path === normalized);
+  if (directory?.deferred) {
+    const loaded = await loadStudioDirectory(normalized);
+    if (!loaded) {
+      renderStudio();
+      remountStudioEditorIfNeeded();
+      return;
+    }
+    if (studioFolderIsIgnored(normalized)) {
+      state.studio.expandedIgnoredFolders.add(normalized);
+    } else {
+      state.studio.collapsedFolders.delete(normalized);
+    }
+    renderStudio();
+    remountStudioEditorIfNeeded();
+    return;
+  }
+
+  if (studioFolderIsIgnored(normalized)) {
+    if (state.studio.expandedIgnoredFolders.has(normalized)) {
+      state.studio.expandedIgnoredFolders.delete(normalized);
+    } else {
+      state.studio.expandedIgnoredFolders.add(normalized);
+    }
+    renderStudio();
+    remountStudioEditorIfNeeded();
+    return;
+  }
+
+  if (state.studio.collapsedFolders.has(normalized)) {
+    state.studio.collapsedFolders.delete(normalized);
   } else {
-    state.studio.collapsedFolders.add(folderPath);
+    state.studio.collapsedFolders.add(normalized);
   }
   renderStudio();
   remountStudioEditorIfNeeded();
 }
 
-function buildStudioFileTree(files) {
+async function loadStudioDirectory(folderPath) {
+  const normalized = String(folderPath ?? "").replace(/^\.\/+/, "").replace(/\/+$/, "");
+  if (!normalized || state.studio.scope !== "local" || !state.studio.id) {
+    return false;
+  }
+  if (state.studio.loadingFolders.has(normalized)) {
+    return false;
+  }
+
+  state.studio.loadingFolders.add(normalized);
+  renderStudio();
+  remountStudioEditorIfNeeded();
+  try {
+    const result = await api(
+      `/api/plugins/local/${encodeURIComponent(state.studio.id)}/files/directory?path=${encodeURIComponent(normalized)}`
+    );
+    mergeStudioExplorerEntries(result.files ?? [], result.directories ?? []);
+    const directory = state.studio.directories.find((entry) => entry.path === normalized);
+    if (directory) {
+      directory.deferred = false;
+    }
+    return true;
+  } catch (error) {
+    appendStudioTerminal(`Folder load failed for ${normalized}: ${error.message}`, "error");
+    notice(error.message, "error");
+    return false;
+  } finally {
+    state.studio.loadingFolders.delete(normalized);
+  }
+}
+
+function mergeStudioExplorerEntries(files, directories) {
+  state.studio.files = mergeStudioEntriesByPath(state.studio.files, files);
+  state.studio.directories = mergeStudioEntriesByPath(state.studio.directories, directories);
+}
+
+function mergeStudioEntriesByPath(existingEntries = [], incomingEntries = []) {
+  const merged = new Map((existingEntries ?? []).map((entry) => [entry.path, entry]));
+  for (const entry of incomingEntries ?? []) {
+    if (!entry?.path) {
+      continue;
+    }
+    merged.set(entry.path, {
+      ...(merged.get(entry.path) ?? {}),
+      ...entry
+    });
+  }
+  return Array.from(merged.values());
+}
+
+function studioFolderIsIgnored(folderPath) {
+  const normalized = String(folderPath ?? "").replace(/\/+$/, "");
+  if (!normalized) {
+    return false;
+  }
+  const directory = state.studio.directories?.find((entry) => entry.path === normalized);
+  return Boolean(directory?.ignored || studioIgnoredFilesForPrefix(normalized).length);
+}
+
+function buildStudioFileTree(files, directories = []) {
   const root = { type: "folder", name: "", path: "", children: new Map() };
+  for (const directory of directories) {
+    const parts = directory.path.split("/").filter(Boolean);
+    let node = root;
+    let currentPath = "";
+    parts.forEach((part) => {
+      currentPath = currentPath ? `${currentPath}/${part}` : part;
+      if (!node.children.has(part)) {
+        node.children.set(part, {
+          type: "folder",
+          name: part,
+          path: currentPath,
+          children: new Map()
+        });
+      }
+      node = node.children.get(part);
+    });
+    node.deferred = Boolean(directory.deferred);
+    node.ignored = Boolean(directory.ignored);
+    node.ignoredBy = directory.ignoredBy ?? "";
+    node.hardIgnored = Boolean(directory.hardIgnored);
+  }
+
   for (const file of files) {
     const parts = file.path.split("/").filter(Boolean);
     let node = root;
@@ -2677,19 +3052,49 @@ function renderStudioTreeChildren(children, depth) {
 
 function renderStudioTreeNode(node, depth) {
   if (node.type === "folder") {
-    const collapsed = state.studio.collapsedFolders.has(node.path);
+    const deferred = Boolean(node.deferred);
+    const loadingFolder = state.studio.loadingFolders?.has(node.path);
+    const nodeIgnored = Boolean(node.ignored);
     const containsCurrent = Boolean(
       state.studio.selectedFile?.path && state.studio.selectedFile.path.startsWith(`${node.path}/`)
     );
     const containsAiChange = studioAiChangedFilesForPrefix(node.path).length > 0;
+    const ignoredCount = studioIgnoredFilesForPrefix(node.path).length;
+    const ignoredFolder = nodeIgnored || ignoredCount > 0;
+    const collapsed = deferred ||
+      (ignoredFolder && !state.studio.expandedIgnoredFolders.has(node.path)) ||
+      state.studio.collapsedFolders.has(node.path);
+    const ignorePattern = studioFolderIgnorePattern(node.path);
+    const hasExactIgnore = studioHasIgnorePattern(ignorePattern);
+    const busy = state.studio.ignoreBusyPattern === ignorePattern;
+    const ignoredTitle = node.ignoredBy
+      ? `Ignored by ${node.ignoredBy}`
+      : ignoredCount
+        ? `${ignoredCount} ignored file${ignoredCount === 1 ? "" : "s"} inside`
+        : "Ignored";
     return `
-      <div class="studio-tree-folder${containsCurrent ? " has-current" : ""}${containsAiChange ? " has-ai-changes" : ""}" role="treeitem" aria-expanded="${collapsed ? "false" : "true"}">
-        <button type="button" class="studio-tree-row studio-tree-folder-row" data-action="studio-toggle-folder" data-folder="${escapeAttr(node.path)}" style="--depth:${depth}">
-          <span class="dashicons ${collapsed ? "dashicons-arrow-right-alt2" : "dashicons-arrow-down-alt2"} studio-tree-arrow" aria-hidden="true"></span>
-          <span class="dashicons ${collapsed ? "dashicons-category" : "dashicons-open-folder"} studio-tree-icon" aria-hidden="true"></span>
-          <span class="studio-tree-label">${escapeHtml(node.name)}</span>
-          ${containsAiChange ? `<span class="studio-tree-ai-badge" title="AI patches inside this folder">AI</span>` : ""}
-        </button>
+      <div class="studio-tree-folder${containsCurrent ? " has-current" : ""}${containsAiChange ? " has-ai-changes" : ""}${ignoredFolder ? " is-ignored" : ""}" role="treeitem" aria-expanded="${collapsed ? "false" : "true"}">
+        <div class="studio-tree-row studio-tree-folder-row${ignoredFolder ? " has-ignored" : ""}${loadingFolder ? " is-loading" : ""}" style="--depth:${depth}">
+          <button type="button" class="studio-tree-main" data-action="studio-toggle-folder" data-folder="${escapeAttr(node.path)}" ${loadingFolder ? "aria-busy=\"true\"" : ""}>
+            <span class="dashicons ${loadingFolder ? "dashicons-update" : collapsed ? "dashicons-arrow-right-alt2" : "dashicons-arrow-down-alt2"} studio-tree-arrow" aria-hidden="true"></span>
+            <span class="dashicons ${deferred || collapsed ? "dashicons-category" : "dashicons-open-folder"} studio-tree-icon" aria-hidden="true"></span>
+            <span class="studio-tree-label">${escapeHtml(node.name)}</span>
+          </button>
+          <span class="studio-tree-badges">
+            ${ignoredFolder ? `<span class="studio-tree-ignored-badge" title="${escapeAttr(ignoredTitle)}">${escapeHtml(ignoredCount ? String(ignoredCount) : "Ignored")}</span>` : ""}
+            ${containsAiChange ? `<span class="studio-tree-ai-badge" title="AI patches inside this folder">AI</span>` : ""}
+          </span>
+          ${node.hardIgnored || (nodeIgnored && !hasExactIgnore)
+            ? renderStudioReadonlyIgnoreAction(node.ignoredBy ?? ignoredTitle)
+            : renderStudioIgnoreAction({
+                action: hasExactIgnore ? "studio-unignore-rule" : "studio-ignore-folder",
+                label: hasExactIgnore ? "Unignore folder" : "Ignore folder",
+                icon: hasExactIgnore ? "dashicons-hidden" : "dashicons-visibility",
+                path: node.path,
+                pattern: ignorePattern,
+                busy
+              })}
+        </div>
         ${collapsed ? "" : `<div role="group">${renderStudioTreeChildren(node.children, depth + 1)}</div>`}
       </div>
     `;
@@ -2698,18 +3103,59 @@ function renderStudioTreeNode(node, depth) {
   const current = node.path === state.studio.selectedFile?.path;
   const checkCounts = studioCheckCountsForPath(node.path);
   const aiChange = studioAiChangedFile(node.path);
+  const ignored = Boolean(node.file?.ignored);
+  const ignoredBy = node.file?.ignoredBy;
+  const hardIgnored = Boolean(node.file?.hardIgnored);
+  const exactPattern = studioFileIgnorePattern(node.path);
+  const hasExactIgnore = studioHasIgnorePattern(exactPattern);
+  const busy = state.studio.ignoreBusyPattern === exactPattern;
   const checkBadge = checkCounts.total
     ? `<span class="studio-tree-check-badge${checkCounts.error ? " has-errors" : ""}" title="${escapeAttr(formatCheckCounts(checkCounts))}">${escapeHtml(String(checkCounts.total))}</span>`
     : "";
   const aiBadge = aiChange
     ? `<span class="studio-tree-ai-badge" title="${escapeAttr(`AI proposed ${aiChange.status} patch`)}">AI</span>`
     : "";
+  const ignoredBadge = ignored
+    ? `<span class="studio-tree-ignored-badge" title="${escapeAttr(`Ignored by ${ignoredBy}`)}">Ignored</span>`
+    : "";
   return `
-    <button type="button" role="treeitem" class="studio-tree-row studio-tree-file-row${current ? " is-current" : ""}${checkCounts.error ? " has-check-errors" : ""}${aiChange ? " has-ai-changes" : ""}" data-action="studio-file" data-path="${escapeAttr(node.path)}" style="--depth:${depth}">
-      <span class="studio-tree-indent" aria-hidden="true"></span>
-      <span class="dashicons ${studioFileIcon(node.path)} studio-tree-icon" aria-hidden="true"></span>
-      <span class="studio-tree-label">${escapeHtml(node.name)}</span>
-      <span class="studio-tree-badges">${aiBadge}${checkBadge}</span>
+    <div role="treeitem" class="studio-tree-row studio-tree-file-row${current ? " is-current" : ""}${checkCounts.error ? " has-check-errors" : ""}${aiChange ? " has-ai-changes" : ""}${ignored ? " is-ignored" : ""}" style="--depth:${depth}">
+      <button type="button" class="studio-tree-main" data-action="studio-file" data-path="${escapeAttr(node.path)}">
+        <span class="studio-tree-indent" aria-hidden="true"></span>
+        <span class="dashicons ${studioFileIcon(node.path)} studio-tree-icon" aria-hidden="true"></span>
+        <span class="studio-tree-label">${escapeHtml(node.name)}</span>
+      </button>
+      <span class="studio-tree-badges">${ignoredBadge}${aiBadge}${checkBadge}</span>
+      ${hardIgnored || (ignored && !hasExactIgnore)
+        ? renderStudioReadonlyIgnoreAction(ignoredBy ?? "Pressship package rules")
+        : renderStudioIgnoreAction({
+            action: hasExactIgnore ? "studio-unignore-rule" : "studio-ignore-file",
+            label: hasExactIgnore ? "Unignore file" : "Ignore file",
+            icon: hasExactIgnore ? "dashicons-hidden" : "dashicons-visibility",
+            path: node.path,
+            pattern: exactPattern,
+            busy
+          })}
+    </div>
+  `;
+}
+
+function renderStudioReadonlyIgnoreAction(reason) {
+  const title = reason ? `Ignored by ${reason}` : "Ignored";
+  return `
+    <span class="studio-tree-action is-readonly" title="${escapeAttr(title)}" aria-label="${escapeAttr(title)}">
+      <span class="dashicons dashicons-hidden" aria-hidden="true"></span>
+    </span>
+  `;
+}
+
+function renderStudioIgnoreAction({ action, label, icon, path, pattern, busy }) {
+  if (!pattern || path === ".pressshipignore" || state.studio.scope !== "local") {
+    return "";
+  }
+  return `
+    <button type="button" class="studio-tree-action${busy ? " is-busy" : ""}" data-action="${escapeAttr(action)}" data-path="${escapeAttr(path ?? "")}" data-pattern="${escapeAttr(pattern)}" title="${escapeAttr(label)}" aria-label="${escapeAttr(label)}" ${busy ? "disabled aria-busy=\"true\"" : ""}>
+      <span class="dashicons ${busy ? "dashicons-update" : icon}" aria-hidden="true"></span>
     </button>
   `;
 }
@@ -3393,6 +3839,278 @@ function applyStudioCheckState(checkState) {
   state.studio.checkRanAt = checkState.checkedAt ?? null;
 }
 
+function applyStudioIgnoreState(ignoreState) {
+  state.studio.ignoreState = {
+    ...createInitialStudioIgnoreState(),
+    ...(ignoreState ?? {})
+  };
+}
+
+function applyStudioPackageSize(packageSize) {
+  if (packageSize?.status === "calculating") {
+    state.studio.packageSize = {
+      ...(state.studio.packageSize ?? createInitialStudioPackageSize()),
+      loading: true,
+      error: "",
+      stale: false
+    };
+    scheduleStudioPackageSizePoll();
+    return;
+  }
+  if (packageSize?.status === "error") {
+    state.studio.packageSize = {
+      ...(state.studio.packageSize ?? createInitialStudioPackageSize()),
+      loading: false,
+      error: packageSize.error ?? "Package size could not be calculated.",
+      calculatedAt: packageSize.calculatedAt ?? new Date().toISOString(),
+      stale: false
+    };
+    return;
+  }
+
+  state.studio.packageSize = {
+    ...createInitialStudioPackageSize(),
+    ...(packageSize ?? {}),
+    loading: false,
+    error: "",
+    calculatedAt: packageSize?.calculatedAt ?? new Date().toISOString(),
+    stale: false
+  };
+}
+
+function markStudioPackageSizeStale() {
+  const packageSize = state.studio.packageSize;
+  if (!packageSize || !packageSize.calculatedAt) {
+    return;
+  }
+  state.studio.packageSize = {
+    ...packageSize,
+    stale: true
+  };
+}
+
+async function refreshStudioPackageSize(options = {}) {
+  if (state.studio.scope !== "local" || !state.studio.id) {
+    return;
+  }
+  if (state.studio.packageSize?.loading && !options.poll) {
+    return;
+  }
+  if (!options.force && state.studio.packageSize?.calculatedAt) {
+    return;
+  }
+
+  const localId = state.studio.id;
+  state.studio.packageSize = {
+    ...(state.studio.packageSize ?? createInitialStudioPackageSize()),
+    loading: true,
+    error: ""
+  };
+  if (options.render !== false) {
+    renderStudio();
+    remountStudioEditorIfNeeded();
+  }
+
+  try {
+    const packageSize = await api(`/api/plugins/local/${encodeURIComponent(localId)}/package-size`);
+    if (state.studio.id !== localId) {
+      return;
+    }
+    applyStudioPackageSize(packageSize);
+    if (options.notify && packageSize.status !== "calculating") {
+      if (packageSize.status === "error") {
+        notice(packageSize.error ?? "Package size could not be calculated.", "error");
+      } else {
+        notice(
+          packageSize.overLimit
+            ? `Package is ${formatStudioBytes(packageSize.sizeBytes)}, over the WordPress.org 10 MB limit.`
+            : `Package is ${formatStudioBytes(packageSize.sizeBytes)}.`,
+          packageSize.overLimit ? "warning" : "success"
+        );
+      }
+    }
+  } catch (error) {
+    if (state.studio.id !== localId) {
+      return;
+    }
+    state.studio.packageSize = {
+      ...(state.studio.packageSize ?? createInitialStudioPackageSize()),
+      loading: false,
+      error: error.message
+    };
+    if (options.notify) {
+      notice(error.message, "error");
+    }
+  } finally {
+    if (state.studio.id === localId && options.render !== false) {
+      renderStudio();
+      remountStudioEditorIfNeeded();
+      updateStudioControls();
+    }
+  }
+}
+
+function scheduleStudioPackageSizePoll() {
+  if (studioPackageSizePollTimer) {
+    return;
+  }
+  studioPackageSizePollTimer = window.setTimeout(() => {
+    studioPackageSizePollTimer = null;
+    void refreshStudioPackageSize({ force: true, render: true, poll: true });
+  }, 1200);
+}
+
+async function refreshStudioIgnoreState(options = {}) {
+  if (state.studio.scope !== "local" || !state.studio.id) {
+    return;
+  }
+
+  const localId = state.studio.id;
+  state.studio.ignoreLoading = true;
+  state.studio.ignoreError = "";
+  if (options.render !== false) {
+    updateStudioSidebar();
+  }
+  try {
+    const requests = [
+      api(`/api/plugins/local/${encodeURIComponent(localId)}/ignore-state`)
+    ];
+    if (options.files) {
+      requests.push(api(`/api/plugins/local/${encodeURIComponent(localId)}/files`));
+    }
+    const [ignoreState, filesResult] = await Promise.all(requests);
+    applyStudioIgnoreState(ignoreState);
+    if (filesResult) {
+        state.studio.files = filesResult.files ?? state.studio.files;
+        state.studio.directories = filesResult.directories ?? state.studio.directories;
+    }
+  } catch (error) {
+    state.studio.ignoreError = error.message;
+  } finally {
+    state.studio.ignoreLoading = false;
+    state.studio.ignoreBusyPattern = "";
+    state.studio.ignoreBusyPath = "";
+    if (options.render !== false) {
+      renderStudio();
+      remountStudioEditorIfNeeded();
+      updateStudioSidebar();
+      updateStudioControls();
+    }
+  }
+}
+
+function studioIgnorePatterns() {
+  return state.studio.ignoreState?.patterns ?? [];
+}
+
+function studioHasIgnorePattern(pattern) {
+  return studioIgnorePatterns().includes(pattern);
+}
+
+function studioFileIgnorePattern(filePath) {
+  return String(filePath ?? "").replace(/^\.\/+/, "");
+}
+
+function studioFolderIgnorePattern(folderPath) {
+  const normalized = String(folderPath ?? "").replace(/^\.\/+/, "").replace(/\/+$/, "");
+  return normalized ? `${normalized}/**` : "";
+}
+
+function studioIgnoredFilesForPrefix(prefix) {
+  const normalized = String(prefix ?? "").replace(/\/+$/, "");
+  if (!normalized) {
+    return [];
+  }
+
+  const files = [];
+  const seen = new Set();
+  const addFile = (file) => {
+    const filePath = String(file?.path ?? "");
+    if (!filePath || seen.has(filePath)) {
+      return;
+    }
+    if (filePath === normalized || filePath.startsWith(`${normalized}/`)) {
+      seen.add(filePath);
+      files.push(file);
+    }
+  };
+
+  for (const file of state.studio.ignoreState?.ignoredFiles ?? []) {
+    addFile(file);
+  }
+  for (const file of state.studio.files ?? []) {
+    if (file?.ignored) {
+      addFile(file);
+    }
+  }
+
+  return files;
+}
+
+async function addStudioIgnoreRule(pattern, options = {}) {
+  if (!pattern || state.studio.scope !== "local" || !state.studio.id) {
+    return;
+  }
+
+  state.studio.ignoreBusyPattern = pattern;
+  state.studio.ignoreBusyPath = options.path ?? "";
+  updateStudioSidebar();
+  try {
+    const ignoreState = await api(`/api/plugins/local/${encodeURIComponent(state.studio.id)}/ignore-rules`, {
+      method: "POST",
+      body: { pattern }
+    });
+    applyStudioIgnoreState(ignoreState);
+    markStudioPackageSizeStale();
+    await refreshStudioIgnoreState({ files: true, render: false });
+    if (state.studio.selectedFile?.path === ".pressshipignore") {
+      await syncSelectedStudioFileFromDisk({ reason: "ignore-rule", reportErrors: true });
+    }
+    appendStudioTerminal(`Ignored ${options.label ?? pattern}.`, "success");
+  } catch (error) {
+    appendStudioTerminal(error.message, "error");
+    notice(error.message, "error");
+  } finally {
+    state.studio.ignoreBusyPattern = "";
+    state.studio.ignoreBusyPath = "";
+    renderStudio();
+    remountStudioEditorIfNeeded();
+    updateStudioSidebar();
+    updateStudioControls();
+  }
+}
+
+async function removeStudioIgnoreRule(pattern) {
+  if (!pattern || state.studio.scope !== "local" || !state.studio.id) {
+    return;
+  }
+
+  state.studio.ignoreBusyPattern = pattern;
+  updateStudioSidebar();
+  try {
+    const ignoreState = await api(`/api/plugins/local/${encodeURIComponent(state.studio.id)}/ignore-rules`, {
+      method: "DELETE",
+      body: { pattern }
+    });
+    applyStudioIgnoreState(ignoreState);
+    markStudioPackageSizeStale();
+    await refreshStudioIgnoreState({ files: true, render: false });
+    if (state.studio.selectedFile?.path === ".pressshipignore") {
+      await syncSelectedStudioFileFromDisk({ reason: "ignore-rule", reportErrors: true });
+    }
+    appendStudioTerminal(`Removed ignore rule ${pattern}.`, "success");
+  } catch (error) {
+    appendStudioTerminal(error.message, "error");
+    notice(error.message, "error");
+  } finally {
+    state.studio.ignoreBusyPattern = "";
+    renderStudio();
+    remountStudioEditorIfNeeded();
+    updateStudioSidebar();
+    updateStudioControls();
+  }
+}
+
 function appendStudioAiMessage(role, text, tone = "muted") {
   state.studio.aiMessages.push({
     role,
@@ -3728,6 +4446,16 @@ function chooseInitialStudioFile(files, slug) {
   );
 }
 
+function canSaveStudioFile() {
+  return Boolean(
+    state.studio.scope === "local" &&
+      state.studio.id &&
+      !state.studio.readOnly &&
+      state.studio.selectedFile &&
+      state.studio.dirty
+  );
+}
+
 function updateStudioControls() {
   const canRun = Boolean(state.studio.id) && !state.studio.loading && !state.studio.running;
   const canCheck =
@@ -3749,12 +4477,17 @@ function updateStudioControls() {
   }
   if (studioCheck) {
     studioCheck.disabled = !canCheck;
+    studioCheck.setAttribute("aria-label", state.studio.checkSummary ? "Re-run Plugin Check" : "Run Plugin Check");
+    studioCheck.title = state.studio.checkSummary ? "Re-run Plugin Check" : "Run Plugin Check";
     studioCheck.innerHTML = state.studio.checking
-      ? `<span class="dashicons dashicons-update" aria-hidden="true"></span> Checking…`
-      : `<span class="dashicons dashicons-yes-alt" aria-hidden="true"></span> ${state.studio.checkSummary ? "Re-check" : "Check"}`;
+      ? `<span class="dashicons dashicons-update" aria-hidden="true"></span><span>Checking</span>`
+      : `<span class="dashicons dashicons-yes-alt" aria-hidden="true"></span><span>${state.studio.checkSummary ? "Re-check" : "Check"}</span>`;
   }
   if (studioSave) {
-    studioSave.disabled = state.studio.readOnly || !state.studio.selectedFile || !state.studio.dirty;
+    studioSave.disabled = !canSaveStudioFile();
+    studioSave.title = `Save ${studioSaveShortcutLabel()}`;
+    studioSave.setAttribute("aria-label", `Save ${studioSaveShortcutLabel()}`);
+    studioSave.setAttribute("aria-keyshortcuts", studioSaveAriaShortcut());
   }
   updateStudioAiControls();
 }
@@ -3846,6 +4579,11 @@ async function mountStudioEditor(content) {
       scrollBeyondLastLine: false
     });
     state.studio.editorKind = "monaco";
+    state.studio.editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
+      if (canSaveStudioFile()) {
+        void saveStudioFile();
+      }
+    });
     state.studio.editor.onDidChangeModelContent(() => {
       state.studio.draftContent = getStudioEditorValue();
       state.studio.dirty = state.studio.draftContent !== state.studio.fileContent;
@@ -6203,6 +6941,22 @@ function isSafeMarkdownHref(value) {
   }
 }
 
+function formatStudioBytes(bytes) {
+  const value = Number(bytes);
+  if (!Number.isFinite(value) || value < 0) {
+    return "0 B";
+  }
+  const units = ["B", "KB", "MB", "GB"];
+  let size = value;
+  let unitIndex = 0;
+  while (size >= 1024 && unitIndex < units.length - 1) {
+    size /= 1024;
+    unitIndex += 1;
+  }
+  const precision = unitIndex === 0 || size >= 10 ? 0 : 1;
+  return `${size.toFixed(precision)} ${units[unitIndex]}`;
+}
+
 function escapeHtml(value) {
   return String(value)
     .replaceAll("&", "&amp;")
@@ -6398,6 +7152,9 @@ function setStudioSidebarTab(tab) {
   if (next === "release" && state.studio.scope === "local" && !state.studio.release.tags) {
     void loadStudioReleaseTags();
   }
+  if (next === "release" && state.studio.scope === "local") {
+    void refreshStudioIgnoreState({ files: true });
+  }
 }
 
 function updateStudioSidebar() {
@@ -6457,6 +7214,7 @@ function renderStudioReleasePane() {
         ${renderStudioReleaseStepVersion(versionState, release)}
         ${renderStudioReleaseStepTags(versionState, release)}
         ${renderStudioReleaseStepValidate(versionState, release)}
+        ${renderStudioReleaseStepIgnored()}
         ${renderStudioReleaseStepPublish(versionState, release)}
       </ol>
     </div>
@@ -6694,6 +7452,56 @@ function renderStudioReleaseStepValidate(versionState, release) {
   return renderStudioReleaseStepShell(3, "Validate", summaryLine, body);
 }
 
+function renderStudioReleaseStepIgnored() {
+  const ignoreState = state.studio.ignoreState ?? createInitialStudioIgnoreState();
+  const patterns = ignoreState.patterns ?? [];
+  const ignoredFiles = ignoreState.ignoredFiles ?? [];
+  const summary = patterns.length
+    ? `${patterns.length} pattern${patterns.length === 1 ? "" : "s"} · ${ignoredFiles.length} file${ignoredFiles.length === 1 ? "" : "s"}`
+    : "No project ignore rules yet.";
+
+  let body;
+  if (state.studio.ignoreLoading) {
+    body = loadingShell("Reading ignored files…");
+  } else if (state.studio.ignoreError) {
+    body = `<p class="ps-release-step-error">${escapeHtml(state.studio.ignoreError)}</p>`;
+  } else if (!patterns.length) {
+    body = `<p class="ps-release-step-muted">No project ignore rules yet.</p>`;
+  } else {
+    body = `
+      <ul class="ps-release-ignore-patterns">
+        ${patterns.map((pattern) => renderStudioIgnorePatternRow(pattern)).join("")}
+      </ul>
+      ${ignoredFiles.length
+        ? `<ul class="ps-release-ignored-files">
+            ${ignoredFiles.slice(0, 8).map((file) => `
+              <li>
+                <span class="dashicons ${studioFileIcon(file.path)}" aria-hidden="true"></span>
+                <span title="${escapeAttr(file.path)}">${escapeHtml(file.path)}</span>
+                <small>${escapeHtml(file.ignoredBy ?? "")}</small>
+              </li>
+            `).join("")}
+          </ul>
+          ${ignoredFiles.length > 8 ? `<p class="ps-release-step-muted">${escapeHtml(`${ignoredFiles.length - 8} more ignored file${ignoredFiles.length - 8 === 1 ? "" : "s"}.`)}</p>` : ""}`
+        : `<p class="ps-release-step-muted">The patterns do not match any visible project files.</p>`}
+    `;
+  }
+
+  return renderStudioReleaseStepShell(4, "Ignored files", summary, body);
+}
+
+function renderStudioIgnorePatternRow(pattern) {
+  const busy = state.studio.ignoreBusyPattern === pattern;
+  return `
+    <li>
+      <code>${escapeHtml(pattern)}</code>
+      <button class="button button-small ps-release-ignore-remove" type="button" data-action="studio-unignore-rule" data-pattern="${escapeAttr(pattern)}" title="${escapeAttr(`Remove ${pattern}`)}" aria-label="${escapeAttr(`Remove ${pattern}`)}" ${busy ? "disabled aria-busy=\"true\"" : ""}>
+        <span class="dashicons ${busy ? "dashicons-update" : "dashicons-no-alt"}" aria-hidden="true"></span>
+      </button>
+    </li>
+  `;
+}
+
 function studioPublishRouteDetails(action) {
   switch (action) {
     case "submit":
@@ -6833,7 +7641,7 @@ function renderStudioReleaseStepPublish(versionState, release) {
       ? "Blocked — fix version state before publishing"
       : "";
 
-  return renderStudioReleaseStepShell(4, "Submit / Release", summary, body);
+  return renderStudioReleaseStepShell(5, "Submit / Release", summary, body);
 }
 
 /* ===================================================================
@@ -6870,16 +7678,19 @@ async function refreshStudioAfterReleaseSwitch(result = {}) {
   const localId = state.studio.id;
   const selectedPath = state.studio.selectedFile?.path;
   try {
-    const [detail, filesResult, checkState, versionState] = await Promise.all([
+    const [detail, filesResult, checkState, versionState, ignoreState] = await Promise.all([
       api(`/api/plugins/local/${encodeURIComponent(localId)}`),
       api(`/api/plugins/local/${encodeURIComponent(localId)}/files`),
       api(`/api/plugins/local/${encodeURIComponent(localId)}/check-state`).catch(() => ({ state: null })),
-      api(`/api/plugins/local/${encodeURIComponent(localId)}/version-state`).catch(() => null)
+      api(`/api/plugins/local/${encodeURIComponent(localId)}/version-state`).catch(() => null),
+      api(`/api/plugins/local/${encodeURIComponent(localId)}/ignore-state`).catch(() => createInitialStudioIgnoreState())
     ]);
 
     applyStudioPluginDetail("local", localId, detail);
     state.studio.files = filesResult.files ?? [];
+    state.studio.directories = filesResult.directories ?? [];
     applyStudioCheckState(checkState.state);
+    applyStudioIgnoreState(ignoreState);
     if (versionState) {
       state.versionStates.set(localId, versionState);
       renderLocal();
@@ -6917,16 +7728,19 @@ async function refreshStudioAfterVersionChange(localId) {
 
   const selectedPath = state.studio.selectedFile?.path;
   try {
-    const [detail, filesResult, checkState, versionState] = await Promise.all([
+    const [detail, filesResult, checkState, versionState, ignoreState] = await Promise.all([
       api(`/api/plugins/local/${encodeURIComponent(localId)}`),
       api(`/api/plugins/local/${encodeURIComponent(localId)}/files`),
       api(`/api/plugins/local/${encodeURIComponent(localId)}/check-state`).catch(() => ({ state: null })),
-      api(`/api/plugins/local/${encodeURIComponent(localId)}/version-state`).catch(() => null)
+      api(`/api/plugins/local/${encodeURIComponent(localId)}/version-state`).catch(() => null),
+      api(`/api/plugins/local/${encodeURIComponent(localId)}/ignore-state`).catch(() => createInitialStudioIgnoreState())
     ]);
 
     applyStudioPluginDetail("local", localId, detail);
     state.studio.files = filesResult.files ?? [];
+    state.studio.directories = filesResult.directories ?? [];
     applyStudioCheckState(checkState.state);
+    applyStudioIgnoreState(ignoreState);
     if (versionState) {
       state.versionStates.set(localId, versionState);
       if (!state.studio.release.newTagDraft || state.studio.release.newTagDraft === versionState.latestSvnTag) {

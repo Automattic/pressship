@@ -71,20 +71,31 @@ export async function release(pluginPath: string | undefined, rawOptions: Releas
   await ensureSvnAvailable({ autoInstall: options.installSvn, interactive: process.stdin.isTTY });
   await ui.task("Preparing SVN working copy", () => ensureWorkingCopy(slug, svnDir));
   await assertReleaseVersionIsNew(version, svnDir);
+  const packageFiles = await listPackageFiles(rootDir, { ignore: options.ignore });
   const trunkDir = path.join(svnDir, "trunk");
   if (samePath(rootDir, trunkDir)) {
     ui.info("Using the current SVN trunk working copy.");
+    await ui.task("Removing ignored files from SVN tracking", () =>
+      removeExcludedVersionedTrunkFiles(svnDir, packageFiles)
+    );
   } else {
-    await ui.task("Syncing plugin files to trunk", () => syncTrunk(rootDir, trunkDir, options.ignore));
+    await ui.task("Syncing plugin files to trunk", () => syncTrunk(rootDir, trunkDir, packageFiles));
   }
-  await syncAssets(rootDir, path.join(svnDir, "assets"));
-  await ui.task("Adding changed files to SVN", () => runSvn(["add", "--force", "."], svnDir));
+  const assetFiles = await syncAssets(rootDir, path.join(svnDir, "assets"));
+  const includedSvnFiles = new Set([
+    ...packageFiles.map((file) => path.posix.join("trunk", toSvnPath(file))),
+    ...assetFiles
+  ]);
+  await ui.task("Adding changed files to SVN", () => addSvnFiles(svnDir, Array.from(includedSvnFiles)));
   await ui.task("Removing deleted files from SVN", () => deleteMissingFiles(svnDir));
   await ui.task(`Creating tag ${version}`, () => createTag(version, svnDir));
   await setAssetMimeTypes(svnDir);
   await ui.task("Updating SVN working copy", () => runSvn(["update"], svnDir));
 
-  const status = await runSvn(["status"], svnDir, { capture: true });
+  const status = filterIgnoredUntrackedSvnStatus(
+    await runSvn(["status"], svnDir, { capture: true }),
+    includedSvnFiles
+  );
   ui.section("SVN status");
   console.log(status || ui.muted("No SVN changes detected."));
   if (!status.trim()) {
@@ -116,7 +127,11 @@ export function createReleaseCommandPlan(
       command: "svn",
       args: ["checkout", `https://plugins.svn.wordpress.org/${slug}`, svnDir]
     },
-    { command: "svn", args: ["add", "--force", "."], cwd: svnDir },
+    {
+      command: "svn",
+      args: ["add", "--force", "trunk/<package-included-files>", "assets/<wordpress-org-assets>"],
+      cwd: svnDir
+    },
     { command: "svn", args: ["copy", "trunk", `tags/${version}`], cwd: svnDir },
     { command: "svn", args: ["update"], cwd: svnDir },
     { command: "svn", args: ["status"], cwd: svnDir },
@@ -184,11 +199,10 @@ async function ensureWorkingCopy(slug: string, svnDir: string): Promise<void> {
   }
 }
 
-async function syncTrunk(pluginRoot: string, trunkDir: string, ignore: string[]): Promise<void> {
+async function syncTrunk(pluginRoot: string, trunkDir: string, files: string[]): Promise<void> {
   await mkdir(trunkDir, { recursive: true });
   await emptyDirectory(trunkDir);
 
-  const files = await listPackageFiles(pluginRoot, { ignore });
   for (const file of files) {
     const source = path.join(pluginRoot, file);
     const destination = path.join(trunkDir, file);
@@ -197,10 +211,10 @@ async function syncTrunk(pluginRoot: string, trunkDir: string, ignore: string[])
   }
 }
 
-async function syncAssets(pluginRoot: string, assetsDir: string): Promise<void> {
+async function syncAssets(pluginRoot: string, assetsDir: string): Promise<string[]> {
   const sourceAssetsDir = path.join(pluginRoot, ".wordpress-org");
   if (!pathExists(sourceAssetsDir)) {
-    return;
+    return [];
   }
 
   await ui.task("Syncing WordPress.org assets", async () => {
@@ -208,6 +222,8 @@ async function syncAssets(pluginRoot: string, assetsDir: string): Promise<void> 
     await emptyDirectory(assetsDir);
     await cp(sourceAssetsDir, assetsDir, { recursive: true });
   });
+
+  return listDirectoryFiles(assetsDir, "assets");
 }
 
 async function emptyDirectory(directory: string): Promise<void> {
@@ -231,6 +247,82 @@ async function deleteMissingFiles(svnDir: string): Promise<void> {
   for (const file of missing) {
     await runSvn(["delete", file], svnDir);
   }
+}
+
+async function removeExcludedVersionedTrunkFiles(svnDir: string, includedFiles: string[]): Promise<void> {
+  const included = new Set(includedFiles.map(toSvnPath));
+  const versioned = await listVersionedTrunkFiles(svnDir);
+  const excluded = versioned.filter((file) => !included.has(file));
+
+  for (const file of excluded) {
+    await runSvn(["delete", "--keep-local", path.posix.join("trunk", file)], svnDir);
+  }
+}
+
+async function listVersionedTrunkFiles(svnDir: string): Promise<string[]> {
+  const output = await runSvn(["list", "-R", "trunk"], svnDir, { capture: true });
+  return output
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line && !line.endsWith("/"))
+    .map(toSvnPath);
+}
+
+async function addSvnFiles(svnDir: string, relativeFiles: string[]): Promise<void> {
+  const files = Array.from(new Set(relativeFiles.map(toSvnPath))).sort((a, b) => a.localeCompare(b));
+  const directories = Array.from(collectParentDirectories(files)).sort(
+    (a, b) => a.split("/").length - b.split("/").length || a.localeCompare(b)
+  );
+
+  for (const directory of directories) {
+    await runSvnAdd(["add", "--force", "--depth", "empty", directory], svnDir);
+  }
+  for (const file of files) {
+    await runSvnAdd(["add", "--force", file], svnDir);
+  }
+}
+
+function collectParentDirectories(files: string[]): Set<string> {
+  const directories = new Set<string>();
+  for (const file of files) {
+    let directory = path.posix.dirname(file);
+    while (directory && directory !== ".") {
+      directories.add(directory);
+      directory = path.posix.dirname(directory);
+    }
+  }
+  return directories;
+}
+
+async function listDirectoryFiles(directory: string, baseRelative: string): Promise<string[]> {
+  const entries = await readdir(directory, { withFileTypes: true });
+  const files: string[] = [];
+  for (const entry of entries) {
+    const absolute = path.join(directory, entry.name);
+    const relative = path.posix.join(baseRelative, entry.name);
+    if (entry.isDirectory()) {
+      files.push(...await listDirectoryFiles(absolute, relative));
+    } else if (entry.isFile()) {
+      files.push(relative);
+    }
+  }
+  return files.sort((a, b) => a.localeCompare(b));
+}
+
+function filterIgnoredUntrackedSvnStatus(status: string, includedSvnFiles: Set<string>): string {
+  return status
+    .split(/\r?\n/)
+    .filter((line) => {
+      if (!line.trim()) {
+        return false;
+      }
+      if (!line.startsWith("?")) {
+        return true;
+      }
+      const relativePath = toSvnPath(line.slice(8).trim());
+      return !relativePath.startsWith("trunk/") || includedSvnFiles.has(relativePath);
+    })
+    .join("\n");
 }
 
 async function createTag(version: string, svnDir: string): Promise<void> {
@@ -296,6 +388,30 @@ async function runSvn(
   }
 
   return `${result.stdout ?? ""}\n${result.stderr ?? ""}`.trim();
+}
+
+async function runSvnAdd(args: string[], cwd: string): Promise<void> {
+  const result = await execa("svn", args, {
+    cwd,
+    reject: false,
+    stdout: "pipe",
+    stderr: "pipe"
+  }).catch((error: unknown) => {
+    if (isMissingSvnError(error)) {
+      throw new Error("`svn` is required for WordPress.org SVN releases. Install Subversion and try again.");
+    }
+    throw error;
+  });
+
+  if (result.exitCode === 0 || /already (?:under version control|versioned)/i.test(result.stderr ?? "")) {
+    return;
+  }
+
+  throw new Error(result.stderr || result.stdout || `svn ${redactSvnArgs(args).join(" ")} failed.`);
+}
+
+function toSvnPath(filePath: string): string {
+  return filePath.split(path.sep).join("/").replace(/^\.\//, "");
 }
 
 function svnCredentialArgs(credentials: SvnCredentials): string[] {
