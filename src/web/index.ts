@@ -13,6 +13,7 @@ export type StudioOptions = z.input<typeof studioOptionsSchema>;
 
 export async function studio(rawOptions: StudioOptions = {}): Promise<void> {
   const options = studioOptionsSchema.parse(rawOptions);
+  ui.logo();
   const server = await startWebServer({
     host: options.host,
     port: options.port,

@@ -1,7 +1,48 @@
 import chalk from "chalk";
 import ora, { type Ora } from "ora";
 
+const pressshipLogoPixels = [
+  "BBBBBBBBBBBBBBBBBBBBB",
+  "BBBBBBBBBBBBBBBBBBBBBBBB",
+  "BBBBBBBBBBBBBBBBBBBBBBBBB",
+  "BBBBBBBBBBBBBBBBBBBBBBBBBB",
+  "BBBBBBBBBBBBBBBBBBBBBBBBBBB",
+  "BBBBB               BBBBBBBB",
+  "BBBBB                 BBBBBBB",
+  "BBBBB                  BBBBBB",
+  "BBBBB   II              BBBBB",
+  "BBBBB   IIII            BBBBBB",
+  "BBBBB   IIIII            BBBBB",
+  "BBBBB    IIIII           BBBBB",
+  "BBBBB     IIIII          BBBBB",
+  "BBBBB      IIII          BBBBB",
+  "BBBBB      IIII          BBBBB",
+  "BBBBB     IIII           BBBBB",
+  "BBBBB   IIIII            BBBBB",
+  "BBBBB   IIII            BBBBBB",
+  "BBBBB   III            BBBBBB",
+  "BBBBB                  BBBBBB",
+  "BBBBB                BBBBBBB",
+  "BBBBB                BBBBBB",
+  "BBBBB   IIIIIIIIII   BBBBBB",
+  "BBBBB   IIIIIIIIIII  BBBBB",
+  "BBBBB   IIIIIIIIIII   BB",
+  "BBBBB",
+  "BBBBB",
+  "BBBBB",
+  "BBBBB",
+  "BBBBB",
+  "BBBBB",
+  "BBBBB",
+  "BBBBB",
+  "BBBBB"
+];
+
 export const ui = {
+  logo(): void {
+    console.log(renderPressshipLogo());
+  },
+
   intro(title: string): void {
     console.log(`\n${chalk.bold.cyan("Pressship")} ${chalk.dim("•")} ${chalk.bold(title)}\n`);
   },
@@ -59,3 +100,47 @@ export const ui = {
     }
   }
 };
+
+function renderPressshipLogo(): string {
+  const width = Math.max(...pressshipLogoPixels.map((line) => line.length));
+  const lines = [""];
+
+  for (let row = 0; row < pressshipLogoPixels.length; row += 2) {
+    let output = "  ";
+    for (let column = 0; column < width; column += 1) {
+      output += renderLogoCell(pixelAt(row, column), pixelAt(row + 1, column));
+    }
+    lines.push(output.trimEnd());
+  }
+
+  lines.push("");
+  return lines.join("\n");
+}
+
+function pixelAt(row: number, column: number): string {
+  return pressshipLogoPixels[row]?.[column] ?? " ";
+}
+
+function renderLogoCell(top: string, bottom: string): string {
+  if (top === " " && bottom === " ") {
+    return " ";
+  }
+  if (top === bottom) {
+    return logoColor(top)("█");
+  }
+  if (bottom === " ") {
+    return logoColor(top)("▀");
+  }
+  if (top === " ") {
+    return logoColor(bottom)("▄");
+  }
+  return chalk.hex(logoColorValue(top)).bgHex(logoColorValue(bottom))("▀");
+}
+
+function logoColor(pixel: string) {
+  return chalk.hex(logoColorValue(pixel));
+}
+
+function logoColorValue(pixel: string): string {
+  return pixel === "I" ? "#f8fafc" : "#315bff";
+}

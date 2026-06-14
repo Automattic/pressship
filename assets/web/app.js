@@ -4,6 +4,7 @@ let token = document.querySelector('meta[name="pressship-token"]').content;
 
 let markdownParser = basicMarkdownToHtml;
 let studioPackageSizePollTimer = null;
+let monacoConfigured = false;
 
 void import("/vendor/marked.esm.js")
   .then(({ marked }) => {
@@ -203,7 +204,7 @@ function studioTheme() {
 }
 
 function studioMonacoTheme() {
-  return studioTheme() === "light" ? "vs" : "vs-dark";
+  return studioTheme() === "light" ? "pressship-studio-light" : "pressship-studio-dark";
 }
 
 function createInitialStudioRelease() {
@@ -228,7 +229,8 @@ function createInitialStudioRelease() {
     switchingResolution: "",
     switchJobId: null,
     switchConflict: null,
-    switchError: ""
+    switchError: "",
+    ignoredCollapsed: true
   };
 }
 
@@ -1158,6 +1160,10 @@ async function runAction(name, element) {
           loadStudioReleaseTags({ force: true }),
           refreshStudioIgnoreState({ files: true })
         ]);
+        return;
+
+      case "studio-release-toggle-ignored":
+        toggleStudioReleaseIgnored();
         return;
 
       case "studio-release-switch":
@@ -2383,7 +2389,7 @@ function renderStudioActivityBar(panels) {
         })}
         ${activityButton({
           action: "studio-open-sidebar-tab",
-          icon: "dashicons-update",
+          icon: "ps-icon-rocket",
           label: "Release",
           active: panels.sidebar && tab === "release",
           tab: "release"
@@ -3081,7 +3087,6 @@ function renderStudioTreeNode(node, depth) {
             <span class="studio-tree-label">${escapeHtml(node.name)}</span>
           </button>
           <span class="studio-tree-badges">
-            ${ignoredFolder ? `<span class="studio-tree-ignored-badge" title="${escapeAttr(ignoredTitle)}">${escapeHtml(ignoredCount ? String(ignoredCount) : "Ignored")}</span>` : ""}
             ${containsAiChange ? `<span class="studio-tree-ai-badge" title="AI patches inside this folder">AI</span>` : ""}
           </span>
           ${node.hardIgnored || (nodeIgnored && !hasExactIgnore)
@@ -3115,9 +3120,6 @@ function renderStudioTreeNode(node, depth) {
   const aiBadge = aiChange
     ? `<span class="studio-tree-ai-badge" title="${escapeAttr(`AI proposed ${aiChange.status} patch`)}">AI</span>`
     : "";
-  const ignoredBadge = ignored
-    ? `<span class="studio-tree-ignored-badge" title="${escapeAttr(`Ignored by ${ignoredBy}`)}">Ignored</span>`
-    : "";
   return `
     <div role="treeitem" class="studio-tree-row studio-tree-file-row${current ? " is-current" : ""}${checkCounts.error ? " has-check-errors" : ""}${aiChange ? " has-ai-changes" : ""}${ignored ? " is-ignored" : ""}" style="--depth:${depth}">
       <button type="button" class="studio-tree-main" data-action="studio-file" data-path="${escapeAttr(node.path)}">
@@ -3125,7 +3127,7 @@ function renderStudioTreeNode(node, depth) {
         <span class="dashicons ${studioFileIcon(node.path)} studio-tree-icon" aria-hidden="true"></span>
         <span class="studio-tree-label">${escapeHtml(node.name)}</span>
       </button>
-      <span class="studio-tree-badges">${ignoredBadge}${aiBadge}${checkBadge}</span>
+      <span class="studio-tree-badges">${aiBadge}${checkBadge}</span>
       ${hardIgnored || (ignored && !hasExactIgnore)
         ? renderStudioReadonlyIgnoreAction(ignoredBy ?? "Pressship package rules")
         : renderStudioIgnoreAction({
@@ -3184,7 +3186,7 @@ function renderStudioSidebarTabs(activeTab) {
         AI Helper
       </button>
       <button class="ps-segmented-option${activeTab === "release" ? " is-active" : ""}" type="button" role="tab" aria-selected="${activeTab === "release"}" data-action="studio-sidebar-tab" data-tab="release">
-        <span class="dashicons dashicons-update" aria-hidden="true"></span>
+        <span class="dashicons ps-icon-rocket" aria-hidden="true"></span>
         Release
       </button>
     </div>
@@ -4795,6 +4797,7 @@ function getStudioEditorValue() {
 
 function ensureMonaco() {
   if (window.monaco) {
+    configurePressshipMonaco(window.monaco);
     return Promise.resolve(window.monaco);
   }
   if (monacoPromise) {
@@ -4810,7 +4813,10 @@ function ensureMonaco() {
           vs: "https://cdn.jsdelivr.net/npm/monaco-editor@0.55.1/min/vs"
         }
       });
-      window.require(["vs/editor/editor.main"], () => resolve(window.monaco), reject);
+      window.require(["vs/editor/editor.main"], () => {
+        configurePressshipMonaco(window.monaco);
+        resolve(window.monaco);
+      }, reject);
     };
     script.onerror = () => reject(new Error("Could not load Monaco Editor."));
     document.head.appendChild(script);
@@ -4819,7 +4825,132 @@ function ensureMonaco() {
   return monacoPromise;
 }
 
+function configurePressshipMonaco(monaco) {
+  if (!monaco || monacoConfigured) {
+    return;
+  }
+  monacoConfigured = true;
+  registerWordPressReadmeLanguage(monaco);
+  definePressshipMonacoThemes(monaco);
+}
+
+function registerWordPressReadmeLanguage(monaco) {
+  const languageId = "wordpress-readme";
+  if (!monaco.languages.getLanguages().some((language) => language.id === languageId)) {
+    monaco.languages.register({
+      id: languageId,
+      aliases: ["WordPress Readme", "wordpress-readme"],
+      extensions: [".txt"],
+      filenames: ["readme.txt"]
+    });
+  }
+
+  monaco.languages.setLanguageConfiguration(languageId, {
+    brackets: [
+      ["[", "]"],
+      ["(", ")"],
+      ["`", "`"]
+    ],
+    autoClosingPairs: [
+      { open: "`", close: "`" },
+      { open: "[", close: "]" },
+      { open: "(", close: ")" }
+    ],
+    surroundingPairs: [
+      { open: "`", close: "`" },
+      { open: "*", close: "*" },
+      { open: "[", close: "]" },
+      { open: "(", close: ")" }
+    ],
+    wordPattern: /(-?\d+(?:\.\d+)*)|([^\s`~!@#$%^&*()=+[{\]}\\|;:'",.<>/?]+)/g
+  });
+
+  monaco.languages.setMonarchTokensProvider(languageId, {
+    defaultToken: "wp-readme.text",
+    tokenizer: {
+      root: [
+        [/^\s*={3}\s*.*?\s*={3}\s*$/, "wp-readme.title"],
+        [/^\s*={2}\s*.*?\s*={2}\s*$/, "wp-readme.section"],
+        [/^\s*=\s*.*?\s*=\s*$/, "wp-readme.subsection"],
+        [/^(\s*)([*+-])(\s+)/, ["wp-readme.whitespace", "wp-readme.listMarker", "wp-readme.whitespace"]],
+        [/^(\s*)(\d+\.)(\s+)/, ["wp-readme.whitespace", "wp-readme.listMarker", "wp-readme.whitespace"]],
+        [/^\s{4,}.*$/, "wp-readme.codeBlock"],
+        [/^\t.*$/, "wp-readme.codeBlock"],
+        [/^(\s*>)(.*)$/, ["wp-readme.quote", "wp-readme.quote"]],
+        [/^([A-Za-z][A-Za-z0-9 /.-]*)(:)(.*)$/, ["wp-readme.field", "wp-readme.delimiter", "wp-readme.fieldValue"]],
+        [/\[[^\]\n]+\]:\s*(?:https?:\/\/|mailto:|#)[^\s]+/, "wp-readme.link"],
+        [/\[[^\]\n]+\]\([^)]+\)/, "wp-readme.link"],
+        [/(?:https?:\/\/|mailto:)[^\s)]+/, "wp-readme.url"],
+        [/\b(?:pressship|npx|wp|svn|npm|composer)\s+[^\n`]+/, "wp-readme.command"],
+        [/`[^`\n]+`/, "wp-readme.inlineCode"],
+        [/\*\*[^*\n][\s\S]*?\*\*/, "wp-readme.strong"],
+        [/\*[^*\s\n][^*\n]*\*/, "wp-readme.emphasis"],
+        [/\[(?:youtube|vimeo|wpvideo|playlist|audio|video)\b[^\]\n]*\]/i, "wp-readme.shortcode"],
+        [/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/, "wp-readme.url"]
+      ]
+    }
+  });
+}
+
+function definePressshipMonacoThemes(monaco) {
+  monaco.editor.defineTheme("pressship-studio-dark", {
+    base: "vs-dark",
+    inherit: true,
+    rules: [
+      { token: "wp-readme.title", foreground: "f8fafc", fontStyle: "bold" },
+      { token: "wp-readme.section", foreground: "7dd3fc", fontStyle: "bold" },
+      { token: "wp-readme.subsection", foreground: "fbbf24", fontStyle: "bold" },
+      { token: "wp-readme.field", foreground: "f78c6c", fontStyle: "bold" },
+      { token: "wp-readme.fieldValue", foreground: "cbd5e1" },
+      { token: "wp-readme.delimiter", foreground: "94a3b8" },
+      { token: "wp-readme.listMarker", foreground: "a78bfa", fontStyle: "bold" },
+      { token: "wp-readme.inlineCode", foreground: "c4b5fd" },
+      { token: "wp-readme.codeBlock", foreground: "a7f3d0" },
+      { token: "wp-readme.link", foreground: "93c5fd", fontStyle: "underline" },
+      { token: "wp-readme.url", foreground: "67e8f9", fontStyle: "underline" },
+      { token: "wp-readme.command", foreground: "fde68a" },
+      { token: "wp-readme.shortcode", foreground: "f9a8d4" },
+      { token: "wp-readme.quote", foreground: "9ca3af", fontStyle: "italic" },
+      { token: "wp-readme.strong", foreground: "f8fafc", fontStyle: "bold" },
+      { token: "wp-readme.emphasis", foreground: "e5e7eb", fontStyle: "italic" }
+    ],
+    colors: {
+      "editor.background": "#1e1e1e"
+    }
+  });
+
+  monaco.editor.defineTheme("pressship-studio-light", {
+    base: "vs",
+    inherit: true,
+    rules: [
+      { token: "wp-readme.title", foreground: "1d4ed8", fontStyle: "bold" },
+      { token: "wp-readme.section", foreground: "0f766e", fontStyle: "bold" },
+      { token: "wp-readme.subsection", foreground: "b45309", fontStyle: "bold" },
+      { token: "wp-readme.field", foreground: "be123c", fontStyle: "bold" },
+      { token: "wp-readme.fieldValue", foreground: "334155" },
+      { token: "wp-readme.delimiter", foreground: "64748b" },
+      { token: "wp-readme.listMarker", foreground: "7c3aed", fontStyle: "bold" },
+      { token: "wp-readme.inlineCode", foreground: "6d28d9" },
+      { token: "wp-readme.codeBlock", foreground: "047857" },
+      { token: "wp-readme.link", foreground: "0969da", fontStyle: "underline" },
+      { token: "wp-readme.url", foreground: "0284c7", fontStyle: "underline" },
+      { token: "wp-readme.command", foreground: "92400e" },
+      { token: "wp-readme.shortcode", foreground: "be185d" },
+      { token: "wp-readme.quote", foreground: "6b7280", fontStyle: "italic" },
+      { token: "wp-readme.strong", foreground: "111827", fontStyle: "bold" },
+      { token: "wp-readme.emphasis", foreground: "374151", fontStyle: "italic" }
+    ],
+    colors: {
+      "editor.background": "#ffffff"
+    }
+  });
+}
+
 function languageForPath(filePath) {
+  const fileName = String(filePath ?? "").split("/").pop()?.toLowerCase();
+  if (fileName === "readme.txt") {
+    return "wordpress-readme";
+  }
   const ext = filePath.split(".").pop()?.toLowerCase();
   const map = {
     css: "css",
@@ -5372,7 +5503,7 @@ function localCard(plugin, versionState) {
               Details
             </button>
             <button type="button" role="menuitem" data-action="manage-release" data-id="${escapeAttr(plugin.id)}">
-              <span class="dashicons dashicons-update" aria-hidden="true"></span>
+              <span class="dashicons ps-icon-rocket" aria-hidden="true"></span>
               Manage release
             </button>
             <button type="button" role="menuitem" data-action="version-state" data-id="${escapeAttr(plugin.id)}">
@@ -5408,7 +5539,7 @@ function localCard(plugin, versionState) {
           Open in Studio
         </button>
         <button type="button" class="ps-plugin-card-secondary" data-action="manage-release" data-id="${escapeAttr(plugin.id)}" ${missing ? "disabled" : ""}>
-          <span class="dashicons dashicons-update" aria-hidden="true"></span>
+          <span class="dashicons ps-icon-rocket" aria-hidden="true"></span>
           Manage release
         </button>
       </footer>
@@ -6325,7 +6456,7 @@ function commandItems() {
       id: "view:release",
       title: "Go to Release Management",
       subtitle: "Release status for every local plugin",
-      icon: "dashicons-update",
+      icon: "ps-icon-rocket",
       run: () => showView("release")
     },
     {
@@ -6385,7 +6516,7 @@ function commandItems() {
       id: `release:${plugin.id}`,
       title: `Manage release • ${plugin.name}`,
       subtitle: plugin.slug,
-      icon: "dashicons-update",
+      icon: "ps-icon-rocket",
       run: () => {
         void openStudio("local", plugin.id, { sidebarTab: "release" });
       }
@@ -7069,7 +7200,7 @@ function renderReleaseBoard() {
     els.release.innerHTML = emptyState({
       title: "No local plugins to release.",
       message: "Add a plugin folder to your Local Library, then come back here.",
-      icon: "dashicons-update"
+      icon: "ps-icon-rocket"
     });
     return;
   }
@@ -7078,7 +7209,7 @@ function renderReleaseBoard() {
   els.release.innerHTML = `
     <div class="ps-card-toolbar" role="region" aria-label="Release board summary">
       <span class="ps-card-toolbar-count">
-        <span class="dashicons dashicons-update" aria-hidden="true"></span>
+        <span class="dashicons ps-icon-rocket" aria-hidden="true"></span>
         ${escapeHtml(
           `${state.releaseBoard.plugins.length} plugin${state.releaseBoard.plugins.length === 1 ? "" : "s"} tracked`
         )}
@@ -7121,7 +7252,7 @@ function releaseBoardCard(entry) {
         : ""}
       <footer class="ps-release-board-card-footer">
         <button type="button" class="button button-primary" data-action="manage-release" data-id="${escapeAttr(entry.id)}" ${entry.exists === false ? "disabled" : ""}>
-          <span class="dashicons dashicons-update" aria-hidden="true"></span>
+          <span class="dashicons ps-icon-rocket" aria-hidden="true"></span>
           Manage release
         </button>
         <button type="button" class="ps-plugin-card-secondary" data-action="version-state" data-id="${escapeAttr(entry.id)}" ${entry.exists === false ? "disabled" : ""}>
@@ -7179,7 +7310,7 @@ function renderStudioReleasePane() {
     return `
       <div class="studio-release-pane">
         <div class="studio-release-empty">
-          <span class="dashicons dashicons-update" aria-hidden="true"></span>
+          <span class="dashicons ps-icon-rocket" aria-hidden="true"></span>
           <strong>Release management is local-only</strong>
           <p>Open a local plugin to manage its release lifecycle.</p>
         </div>
@@ -7190,7 +7321,7 @@ function renderStudioReleasePane() {
     return `
       <div class="studio-release-pane">
         <div class="studio-release-empty">
-          <span class="dashicons dashicons-update" aria-hidden="true"></span>
+          <span class="dashicons ps-icon-rocket" aria-hidden="true"></span>
           <strong>Open a plugin to start</strong>
         </div>
       </div>
@@ -7235,6 +7366,16 @@ function renderStudioReleaseStepShell(number, title, summary, body) {
       <div class="ps-release-step-body">${body}</div>
     </li>
   `;
+}
+
+function toggleStudioReleaseIgnored() {
+  state.studio.release = {
+    ...state.studio.release,
+    ignoredCollapsed: !(state.studio.release?.ignoredCollapsed ?? true)
+  };
+  renderStudio();
+  remountStudioEditorIfNeeded();
+  updateStudioControls();
 }
 
 function renderStudioReleaseStepVersion(versionState, release) {
@@ -7456,6 +7597,7 @@ function renderStudioReleaseStepIgnored() {
   const ignoreState = state.studio.ignoreState ?? createInitialStudioIgnoreState();
   const patterns = ignoreState.patterns ?? [];
   const ignoredFiles = ignoreState.ignoredFiles ?? [];
+  const collapsed = state.studio.release?.ignoredCollapsed ?? true;
   const summary = patterns.length
     ? `${patterns.length} pattern${patterns.length === 1 ? "" : "s"} · ${ignoredFiles.length} file${ignoredFiles.length === 1 ? "" : "s"}`
     : "No project ignore rules yet.";
@@ -7487,7 +7629,22 @@ function renderStudioReleaseStepIgnored() {
     `;
   }
 
-  return renderStudioReleaseStepShell(4, "Ignored files", summary, body);
+  return `
+    <li class="ps-release-step ps-release-step-collapsible${collapsed ? " is-collapsed" : ""}">
+      <span class="ps-release-step-connector" aria-hidden="true"></span>
+      <header class="ps-release-step-header">
+        <button class="ps-release-step-toggle" type="button" data-action="studio-release-toggle-ignored" aria-expanded="${collapsed ? "false" : "true"}">
+          <span class="ps-release-step-marker">4</span>
+          <span class="ps-release-step-heading">
+            <strong>Ignored files</strong>
+            <small>${escapeHtml(summary)}</small>
+          </span>
+          <span class="dashicons ${collapsed ? "dashicons-arrow-right-alt2" : "dashicons-arrow-down-alt2"} ps-release-step-toggle-icon" aria-hidden="true"></span>
+        </button>
+      </header>
+      ${collapsed ? "" : `<div class="ps-release-step-body">${body}</div>`}
+    </li>
+  `;
 }
 
 function renderStudioIgnorePatternRow(pattern) {
@@ -7518,7 +7675,7 @@ function studioPublishRouteDetails(action) {
       return {
         label: "Release update",
         shortLabel: "release",
-        icon: "dashicons-update",
+        icon: "ps-icon-rocket",
         description: "Use this for an approved plugin that already has an SVN repository. Pressship validates the package and publishes the current version after confirmation.",
         dryRunLabel: "Dry-run release",
         confirmLabel: "Confirm release",

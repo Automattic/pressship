@@ -1,6 +1,9 @@
+import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { getManagedWpConfig, getSqliteDropInFromTemplate } from "../src/checks/plugin-check-environment.js";
-import { parsePluginCheckOutput } from "../src/checks/plugin-check.js";
+import { normalizePluginCheckFindingPaths, parsePluginCheckOutput } from "../src/checks/plugin-check.js";
 import { parseReadmeValidatorText } from "../src/checks/readme-validator.js";
 
 describe("Plugin Check output parsing", () => {
@@ -57,6 +60,30 @@ describe("Plugin Check output parsing", () => {
           "WP-CLI is available, but `wp plugin check` is not registered. Install and activate the WordPress.org Plugin Check plugin in your WordPress install, then pass `--wp-path /path/to/wordpress`, or use `--skip-plugin-check`."
       }
     ]);
+  });
+
+  it("repairs macOS /private path prefixes leaked into relative finding files", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "pressship-plugin-check-"));
+    await mkdir(path.join(root, "includes"), { recursive: true });
+    await writeFile(path.join(root, "includes", "class-rest-controller.php"), "<?php\n");
+
+    const findings = await normalizePluginCheckFindingPaths(
+      [
+        {
+          severity: "error",
+          code: "example.error",
+          message: "Example finding.",
+          file: "/privateincludes/class-rest-controller.php",
+          line: 12
+        }
+      ],
+      root
+    );
+
+    expect(findings[0]).toMatchObject({
+      file: "includes/class-rest-controller.php",
+      line: 12
+    });
   });
 });
 

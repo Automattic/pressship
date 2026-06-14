@@ -1,3 +1,5 @@
+import { realpath, stat } from "node:fs/promises";
+import path from "node:path";
 import { execa } from "execa";
 import type { Finding } from "../types.js";
 import { prepareManagedPluginCheckEnvironment, type WpCliCommand } from "./plugin-check-environment.js";
@@ -49,11 +51,13 @@ export async function runPluginCheck(
   const rawOutput = `${result.stdout}\n${result.stderr}`.trim();
   const setupFinding = getPluginCheckSetupFinding(rawOutput);
 
+  const parsedFindings = setupFinding ? [setupFinding] : parsePluginCheckOutput(rawOutput, result.exitCode);
+
   return {
     skipped: false,
     available: !setupFinding,
     rawOutput,
-    findings: setupFinding ? [setupFinding] : parsePluginCheckOutput(rawOutput, result.exitCode)
+    findings: setupFinding ? parsedFindings : await normalizePluginCheckFindingPaths(parsedFindings, target)
   };
 }
 
@@ -120,6 +124,16 @@ export function getPluginCheckSetupFinding(output: string): Finding | undefined 
   }
 
   return undefined;
+}
+
+export async function normalizePluginCheckFindingPaths(findings: Finding[], target: string): Promise<Finding[]> {
+  const targetRoots = await resolvePluginCheckTargetRoots(target);
+  return Promise.all(
+    findings.map(async (finding) => {
+      const file = await normalizePluginCheckFindingFile(finding.file, targetRoots);
+      return file === finding.file ? finding : { ...finding, file };
+    })
+  );
 }
 
 function extractJson(output: string): string | undefined {
@@ -212,6 +226,78 @@ function normalizePluginCheckFindings(parsed: unknown): Finding[] {
 
     return [{ severity, message, code, file, line, column }];
   });
+}
+
+async function resolvePluginCheckTargetRoots(target: string): Promise<string[]> {
+  const resolved = path.resolve(target);
+  const roots = [resolved];
+  try {
+    const real = await realpath(resolved);
+    if (!roots.includes(real)) {
+      roots.push(real);
+    }
+  } catch {
+    // If realpath fails, the resolved path is still useful for relative repairs.
+  }
+  return roots;
+}
+
+async function normalizePluginCheckFindingFile(
+  file: string | undefined,
+  targetRoots: string[]
+): Promise<string | undefined> {
+  if (!file) {
+    return undefined;
+  }
+
+  const normalized = file.replace(/\\/g, "/");
+  if (path.isAbsolute(file)) {
+    const absolutePath = path.resolve(file);
+    for (const root of targetRoots) {
+      if (absolutePath === root || absolutePath.startsWith(`${root}${path.sep}`)) {
+        return path.relative(root, absolutePath).split(path.sep).join("/");
+      }
+    }
+  }
+
+  for (const candidate of pluginCheckPrivatePrefixCandidates(normalized)) {
+    if (await pluginCheckTargetFileExists(targetRoots, candidate)) {
+      return candidate;
+    }
+  }
+
+  return normalized;
+}
+
+function pluginCheckPrivatePrefixCandidates(file: string): string[] {
+  if (!file.startsWith("/private") || file.startsWith("/private/")) {
+    return [];
+  }
+
+  const candidate = file.slice("/private".length).replace(/^\/+/, "");
+  return candidate ? [candidate] : [];
+}
+
+async function pluginCheckTargetFileExists(targetRoots: string[], relativePath: string): Promise<boolean> {
+  if (!relativePath || relativePath.split("/").some((segment) => segment === "..")) {
+    return false;
+  }
+
+  for (const root of targetRoots) {
+    const filePath = path.resolve(root, relativePath);
+    if (filePath === root || !filePath.startsWith(`${root}${path.sep}`)) {
+      continue;
+    }
+    try {
+      return (await stat(filePath)).isFile();
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+        throw error;
+      }
+    }
+  }
+
+  return false;
 }
 
 function normalizeSeverity(value: unknown): Finding["severity"] {
