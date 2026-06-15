@@ -3203,7 +3203,7 @@ body[data-active-view="studio"] #notice-stack {
 .studio-main {
   display: grid;
   grid-template-columns:
-    var(--studio-files-width, 260px)
+    var(--studio-files-width, 220px)
     6px
     minmax(0, 1fr)
     6px
@@ -5210,18 +5210,18 @@ body.is-studio-resizing-v iframe {
 
 .studio-ai-changes {
   grid-row: 3;
-  max-height: 120px;
+  max-height: 176px;
   min-height: 0;
   overflow: auto;
   border-bottom: 1px solid var(--wp-border);
-  background: var(--wp-info-bg);
+  background: var(--wp-surface-alt);
 }
 
 .studio-ai-changes header {
   align-items: center;
-  display: inline-flex;
+  display: flex;
   gap: 6px;
-  padding: 8px 10px 5px;
+  padding: 8px 10px 6px;
   color: var(--wp-text);
   font-size: 11px;
 }
@@ -5234,38 +5234,39 @@ body.is-studio-resizing-v iframe {
 }
 
 .studio-ai-change-list {
-  display: flex;
-  gap: 6px;
-  overflow-x: auto;
+  display: grid;
+  gap: 8px;
   padding: 0 10px 10px;
 }
 
 .studio-ai-change-card {
   display: grid;
-  flex: 0 0 min(220px, 82%);
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: stretch;
-  border: 1px solid #b7d9ee;
+  gap: 8px;
+  border: 1px solid var(--wp-border);
   border-radius: var(--wp-radius-s);
   background: var(--wp-surface);
   box-shadow: var(--wp-shadow-sm);
+  padding: 8px;
 }
 
 .studio-ai-change-card.is-selected {
   border-color: var(--wp-admin-theme-color);
+  box-shadow: 0 0 0 1px var(--wp-admin-theme-color);
 }
 
 .studio-ai-change {
-  align-items: center;
-  display: inline-flex;
-  gap: 5px;
+  align-items: start;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 8px;
   min-width: 0;
   border: 0;
+  border-radius: calc(var(--wp-radius-s) - 2px);
   background: transparent;
   color: var(--wp-text);
   cursor: pointer;
-  font-size: 11px;
-  padding: 5px 8px;
+  font-size: 12px;
+  padding: 2px;
   text-align: left;
 }
 
@@ -5276,7 +5277,24 @@ body.is-studio-resizing-v iframe {
   outline: none;
 }
 
-.studio-ai-change span:nth-child(2) {
+.studio-ai-change > .dashicons {
+  margin-top: 1px;
+  color: var(--wp-admin-theme-color);
+  font-size: 16px;
+  height: 16px;
+  width: 16px;
+}
+
+.studio-ai-change-main {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.studio-ai-change-path {
+  color: var(--wp-heading);
+  font-weight: 600;
+  line-height: 1.25;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -5284,29 +5302,40 @@ body.is-studio-resizing-v iframe {
 
 .studio-ai-change small {
   color: var(--wp-text-muted);
-  font-size: 9px;
+  font-size: 10px;
+  letter-spacing: 0.04em;
   text-transform: uppercase;
 }
 
 .studio-ai-change-actions {
   display: grid;
-  grid-template-columns: 26px 26px;
-  border-left: 1px solid var(--wp-border);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
 }
 
 .studio-ai-change-action {
-  display: grid;
-  place-items: center;
-  width: 26px;
-  border: 0;
-  border-left: 1px solid var(--wp-border-soft);
+  align-items: center;
+  justify-content: center;
+  display: inline-flex;
+  gap: 5px;
+  min-height: 28px;
+  border: 1px solid var(--wp-border);
+  border-radius: calc(var(--wp-radius-s) - 2px);
   background: transparent;
   color: var(--wp-text-muted);
   cursor: pointer;
+  font-size: 11px;
+  font-weight: 600;
 }
 
-.studio-ai-change-action:first-child {
-  border-left: 0;
+.studio-ai-change-action.is-accept {
+  border-color: rgba(0, 128, 0, 0.32);
+  color: var(--wp-success);
+}
+
+.studio-ai-change-action.is-reject {
+  border-color: rgba(220, 38, 38, 0.32);
+  color: var(--wp-error);
 }
 
 .studio-ai-change-action:hover,
@@ -5318,11 +5347,13 @@ body.is-studio-resizing-v iframe {
 .studio-ai-change-action.is-accept:hover,
 .studio-ai-change-action.is-accept:focus-visible {
   color: var(--wp-success);
+  border-color: var(--wp-success);
 }
 
 .studio-ai-change-action.is-reject:hover,
 .studio-ai-change-action.is-reject:focus-visible {
   color: var(--wp-error);
+  border-color: var(--wp-error);
 }
 
 .studio-ai-composer {
@@ -5561,7 +5592,7 @@ body.is-studio-resizing-v iframe {
 .studio-main {
   grid-template-columns:
     48px
-    var(--studio-files-width, 260px)
+    var(--studio-files-width, 220px)
     6px
     minmax(0, 1fr)
     6px
@@ -5574,7 +5605,7 @@ body.is-studio-resizing-v iframe {
 }
 
 .studio-root.has-files.is-secondary-sidebar-collapsed .studio-main {
-  grid-template-columns: 48px var(--studio-files-width, 260px) 6px minmax(0, 1fr);
+  grid-template-columns: 48px var(--studio-files-width, 220px) 6px minmax(0, 1fr);
 }
 
 .studio-root.is-files-collapsed.is-secondary-sidebar-collapsed .studio-main {
@@ -6052,7 +6083,15 @@ body.is-studio-resizing-v iframe {
 
 .studio-ai-changes {
   border-bottom-color: var(--studio-vscode-border);
-  background: #1f2937;
+  background: #202020;
+}
+
+.studio-ai-change-path {
+  color: var(--studio-vscode-text);
+}
+
+.studio-ai-change-action {
+  border-color: var(--studio-vscode-border-strong);
 }
 
 .studio-ai-composer textarea {
@@ -6204,7 +6243,7 @@ body.is-studio-resizing-v iframe {
   .studio-main {
     grid-template-columns:
       48px
-      var(--studio-files-width, 260px)
+      var(--studio-files-width, 220px)
       6px
       minmax(0, 1fr)
       6px
@@ -6216,7 +6255,7 @@ body.is-studio-resizing-v iframe {
   }
 
   .studio-root.has-files.is-secondary-sidebar-collapsed .studio-main {
-    grid-template-columns: 48px var(--studio-files-width, 260px) 6px minmax(0, 1fr);
+    grid-template-columns: 48px var(--studio-files-width, 220px) 6px minmax(0, 1fr);
   }
 
   .studio-root.is-files-collapsed.is-secondary-sidebar-collapsed .studio-main {
@@ -7411,9 +7450,10 @@ td code {
 }
 
 .ps-release-tag-row {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  gap: 6px;
+  gap: 5px 6px;
   padding: 5px 8px;
   border-bottom: 1px solid var(--wp-border-soft);
   min-height: 30px;
@@ -7434,12 +7474,13 @@ td code {
 .ps-release-tag-name {
   display: inline-flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 5px;
   font-weight: 500;
   color: var(--wp-heading);
-  flex: 1 1 auto;
   min-width: 0;
   font-size: 12px;
+  line-height: 1.25;
 }
 
 .ps-release-tag-name .dashicons {
@@ -7486,7 +7527,31 @@ td code {
 
 .ps-release-tag-actions {
   display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  min-width: 0;
   gap: 4px;
+}
+
+.ps-release-tag-row.is-uncommitted {
+  align-items: start;
+}
+
+.ps-release-tag-row.is-uncommitted .ps-release-tag-name,
+.ps-release-tag-row.is-uncommitted .ps-release-tag-actions {
+  grid-column: 1 / -1;
+}
+
+.ps-release-tag-row.is-uncommitted .ps-release-tag-actions {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  padding-left: 20px;
+}
+
+.ps-release-tag-row.is-uncommitted .ps-release-tag-local-note {
+  min-width: 0;
+  white-space: normal;
+  line-height: 1.15;
 }
 
 .ps-release-tag-actions .button.is-confirming,
@@ -8377,6 +8442,14 @@ td code {
   border-color: var(--studio-vscode-border);
   background: #f6f8fa;
   color: var(--studio-vscode-text);
+}
+
+.studio-root[data-theme="light"] .studio-ai-change-path {
+  color: var(--studio-vscode-text);
+}
+
+.studio-root[data-theme="light"] .studio-ai-change-action {
+  border-color: var(--studio-vscode-border);
 }
 
 .studio-root[data-theme="light"] .studio-terminal-output {

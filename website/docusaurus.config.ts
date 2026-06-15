@@ -36,7 +36,7 @@ const config: Config = {
       {
         docs: {
           sidebarPath: "./sidebars.ts",
-          editUrl: "https://github.com/f/pressship/tree/main/website/"
+          editUrl: "https://github.com/Automattic/pressship/tree/main/website/"
         },
         blog: false,
         theme: {
@@ -70,7 +70,7 @@ const config: Config = {
           position: "right"
         },
         {
-          href: "https://github.com/f/pressship",
+          href: "https://github.com/Automattic/pressship",
           label: "GitHub",
           position: "right"
         }
@@ -101,7 +101,7 @@ const config: Config = {
           items: [
             {
               label: "GitHub",
-              href: "https://github.com/f/pressship"
+              href: "https://github.com/Automattic/pressship"
             }
           ]
         },

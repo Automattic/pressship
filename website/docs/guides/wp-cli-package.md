@@ -7,7 +7,7 @@ sidebar_position: 5
 Pressship can be installed as a WP-CLI package:
 
 ```bash
-wp package install f/pressship
+wp package install Automattic/pressship
 ```
 
 After installation, run Pressship through WP-CLI:

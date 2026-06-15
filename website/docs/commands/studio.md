@@ -4,7 +4,7 @@ sidebar_position: 6
 
 # Studio
 
-Pressship Studio is the local web workspace for day-to-day WordPress plugin work. It brings the plugin list, local project registry, file editor, Plugin Check, WordPress Playground, AI assistance, SVN release preparation, and guarded publish flows into one browser UI.
+Pressship Studio is the local web workspace for day-to-day WordPress plugin work. It brings the plugin list, local project registry, file editor, Plugin Check, WordPress Playground, AI assistance, package-size checks, ignore management, SVN release preparation, and guarded publish flows into one browser UI.
 
 ```bash
 pressship studio
@@ -85,11 +85,17 @@ Use the Studio screen to open a tracked local plugin or choose a local plugin fo
 
 - a file tree for editable plugin files;
 - a Monaco-powered editor;
+- pinned Home and WP Admin tabs, plus one tab per opened file;
 - Home and WP Admin Playground tabs;
 - a bottom terminal for job output;
-- a right sidebar for AI assistance and release operations.
+- a right sidebar for AI assistance and release operations;
+- toggleable file, terminal, and right-sidebar panes.
+
+![Studio toolbar with layout toggles, Play, package size, and theme controls](/img/studio/studio-package-size.png)
 
 Remote WordPress.org plugins can be opened read-only when Studio only has hosted metadata. Clone the plugin first when you need to edit files or run local checks.
+
+Studio keeps the URL in sync with the current page and opened file. You can bookmark or refresh routes such as `/dashboard`, `/studio/<project>/<file>`, `/wordpress.org`, `/local`, and `/settings`.
 
 ## Editing Files
 
@@ -99,12 +105,21 @@ The editor supports:
 
 - file tree navigation;
 - dirty-file indicators;
-- save actions;
+- save actions, including `Cmd+S` / `Ctrl+S`;
 - Plugin Check markers;
 - AI patch badges on changed files;
-- resizable file, terminal, and sidebar panels.
+- WordPress readme highlighting for `readme.txt`;
+- automatic reload when the opened file changes on disk and there is no unsaved draft.
 
 If you switch files with unsaved changes, Studio asks before discarding the current draft.
+
+## Package Size and CLI Hints
+
+![Studio terminal showing equivalent npx pressship commands](/img/studio/studio-cli-terminal.png)
+
+The Size control estimates the installable package size without blocking the page. Studio caches the result and only recalculates when you ask again or when edits make the package state stale. When the package exceeds WordPress.org's upload limit, the toolbar highlights it.
+
+The Studio terminal also teaches the equivalent CLI command for CLI-backed actions. For example, running Size prints a `npx pressship pack ... --no-verify --ignore ... --json` command, and publish dry runs print the matching `npx pressship publish ... --dry-run` command. Project ignore rules are expanded as repeatable `--ignore` flags so the terminal output can be copied into a shell.
 
 ## Plugin Check
 
@@ -119,6 +134,14 @@ The Check action runs WordPress.org Plugin Check for the opened local plugin. Re
 - release validation state.
 
 Running Plugin Check again replaces the saved results. Saving or accepting AI patches can prune stale findings for changed files.
+
+## Ignore Rules
+
+![Ignored files section in the Release sidebar](/img/studio/studio-ignore-rules.png)
+
+Studio manages project-specific package exclusions through `.pressshipignore`. The Explorer can add exact file rules or `folder/**` rules, ignored files stay visible but dimmed, and `.git` is always hidden from the Explorer.
+
+The Release sidebar includes an Ignored files step. It starts collapsed, shows the number of patterns and matched files, and lets you remove exact rules. These rules are used by package size checks, submit/release dry runs, Plugin Check staging, zip creation, and SVN release filtering.
 
 ## WordPress Playground
 
@@ -184,6 +207,7 @@ The Release sidebar can:
 - create a local uncommitted SVN tag from `trunk`;
 - delete local-only uncommitted tags;
 - switch the working copy between `trunk` and tags;
+- review `.pressshipignore` patterns and matched files;
 - run Plugin Check;
 - inspect version state;
 - run dry-run submit, dry-run release, or auto dry-run;
@@ -199,6 +223,8 @@ Studio refuses to delete remote-published tags. Published tags must be handled t
 
 Studio publish and release actions are intentionally guarded.
 
+![Submit / Release dry-run choices in the Release sidebar](/img/studio/studio-submit-release-flow.png)
+
 The flow is:
 
 1. Open a local plugin.
@@ -208,9 +234,19 @@ The flow is:
 5. Review the detected route, validation result, package summary, and release plan.
 6. Confirm the real action only after the dry run succeeds.
 
+Step 5, **Submit / Release**, is where you choose which publish route to preview:
+
+- **Auto decide** is the recommended default. Studio checks WordPress.org state and SVN availability, then chooses submit for a first-time review or release for an already-approved plugin.
+- **Submit new plugin** forces the WordPress.org review submission path. Use it when the plugin has not been approved yet or needs to be uploaded to the submission flow.
+- **Release update** forces the approved-plugin SVN path. Use it when the plugin already has a WordPress.org SVN repository and you want to publish the current version.
+
+Every button in this step starts with a dry run. Dry runs validate the package, apply `.pressshipignore`, show whether the route is submit or release, and prepare a temporary approval token for the final confirmation button. Nothing is uploaded or committed until the later confirm action succeeds.
+
 Confirmed publish approvals expire after about 20 minutes. If the plugin version changes after a dry run, Studio requires a fresh dry run before publishing.
 
 For SVN releases, Studio uses the same generated WordPress.org SVN password flow as the CLI. If credentials are missing, run a CLI release once or save credentials before confirming releases from Studio.
+
+Version bump buttons update the plugin PHP header and `readme.txt` stable tag together. The tag input defaults to the current local version so the create-tag and dry-run flow can move forward with fewer manual edits.
 
 ## Settings
 
@@ -243,6 +279,7 @@ Important files include:
 - `studio-local-plugins.json` for the local plugin registry;
 - `studio-settings.json` for Studio settings;
 - `studio-plugin-check-state.json` for saved Plugin Check findings;
+- `.pressshipignore` in each managed plugin directory for project package exclusions;
 - `cache/` for temporary Studio packages and support files.
 
 Settings and registries are written with user-only file permissions where possible.

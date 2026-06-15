@@ -17,20 +17,20 @@ The skill is designed for agents that help maintain plugins with Pressship. It t
 You can install the skill with the open agent skills CLI. First, list the skills exposed by the Pressship repository:
 
 ```bash
-npx skills add f/pressship --list
+npx skills add Automattic/pressship --list
 ```
 
 Install the publishing skill for a specific agent:
 
 ```bash
-npx skills add f/pressship --skill wordpress-plugin-publish -a claude-code
-npx skills add f/pressship --skill wordpress-plugin-publish -a codex
+npx skills add Automattic/pressship --skill wordpress-plugin-publish -a claude-code
+npx skills add Automattic/pressship --skill wordpress-plugin-publish -a codex
 ```
 
 For a global, non-interactive install, combine `--global`, `--agent`, and `--yes`:
 
 ```bash
-npx skills add f/pressship --skill wordpress-plugin-publish --global --agent claude-code --yes
+npx skills add Automattic/pressship --skill wordpress-plugin-publish --global --agent claude-code --yes
 ```
 
 Useful `skills add` flags:
@@ -111,7 +111,7 @@ pressship publish --release -y
 The skill also understands the WP-CLI package surface:
 
 ```bash
-wp package install f/pressship
+wp package install Automattic/pressship
 wp ship verify .
 wp ship publish . --dry-run
 ```

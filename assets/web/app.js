@@ -76,14 +76,14 @@ const HARNESS_ICON = {
 const STUDIO_LAYOUT_STORAGE_KEY = "pressship.studio.layout.v1";
 
 const STUDIO_LAYOUT_DEFAULTS = {
-  files: 260,
+  files: 220,
   ai: 330,
   terminal: 190,
   checkNotes: 152
 };
 
 const STUDIO_LAYOUT_LIMITS = {
-  files: { min: 180, max: 560 },
+  files: { min: 160, max: 440 },
   ai: { min: 260, max: 720 },
   terminal: { min: 100, max: 600 },
   checkNotes: { min: 80, max: 520 }
@@ -3461,15 +3461,19 @@ function renderStudioAiChangeCard(change) {
     <article class="studio-ai-change-card${selected ? " is-selected" : ""}">
       <button type="button" class="studio-ai-change" data-action="studio-ai-change" data-path="${escapeAttr(change.path)}">
         <span class="dashicons ${change.status === "deleted" ? "dashicons-trash" : studioFileIcon(change.path)}" aria-hidden="true"></span>
-        <span>${escapeHtml(change.path)}</span>
-        <small>${escapeHtml(studioAiPatchSummary(change))}</small>
+        <span class="studio-ai-change-main">
+          <span class="studio-ai-change-path">${escapeHtml(change.path)}</span>
+          <small>${escapeHtml(studioAiPatchSummary(change))}</small>
+        </span>
       </button>
       <div class="studio-ai-change-actions" aria-label="${escapeAttr(`Review ${change.path}`)}">
         <button type="button" class="studio-ai-change-action is-accept" data-action="studio-ai-accept" data-path="${escapeAttr(change.path)}" title="Accept patch" aria-label="${escapeAttr(`Accept patch for ${change.path}`)}">
           <span class="dashicons dashicons-yes-alt" aria-hidden="true"></span>
+          <span>Accept</span>
         </button>
         <button type="button" class="studio-ai-change-action is-reject" data-action="studio-ai-reject" data-path="${escapeAttr(change.path)}" title="Reject patch" aria-label="${escapeAttr(`Reject patch for ${change.path}`)}">
           <span class="dashicons dashicons-no-alt" aria-hidden="true"></span>
+          <span>Reject</span>
         </button>
       </div>
     </article>
@@ -4468,12 +4472,16 @@ function handleStudioJobEvent(id, payload) {
     }
   } else if (payload.type === "log") {
     if (isAiJob) {
-      appendStudioAiOutput(payload.data?.message ?? payload.data, "log");
-      if (payload.data?.data?.changedFiles) {
+      const aiLogData = payload.data?.data;
+      if (aiLogData?.changedFiles) {
         mergeStudioAiChangedFiles(payload.data.data.changedFiles);
         updateStudioAiSidebar();
         renderStudio();
         remountStudioEditorIfNeeded();
+      } else if (aiLogData?.proposedChanges) {
+        return;
+      } else {
+        appendStudioAiOutput(payload.data?.message ?? payload.data, "log");
       }
     } else {
       appendStudioTerminal(payload.data?.message ?? payload.data, "log");
@@ -4710,6 +4718,7 @@ async function mountStudioEditor(content) {
         modified: modifiedModel
       });
       state.studio.editorKind = "monaco-diff";
+      revealStudioAiPatchChange(aiPatch);
       return;
     }
 
@@ -4859,6 +4868,69 @@ function applyStudioAiPatchMarkers() {
     Array.isArray(state.studio.aiPatchDecorations) ? state.studio.aiPatchDecorations : [],
     decorations
   );
+}
+
+function firstStudioAiPatchLocation(change) {
+  const hunks = change?.hunks?.length
+    ? change.hunks
+    : change
+      ? buildStudioAiPatchHunks(change.beforeContent ?? "", change.afterContent ?? "")
+      : [];
+
+  for (const hunk of hunks) {
+    let oldLine = Number(hunk.oldStart) || 1;
+    let newLine = Number(hunk.newStart) || 1;
+
+    for (const line of hunk.lines ?? []) {
+      if (line.type === "add" || line.type === "delete") {
+        return {
+          oldLine: Math.max(1, oldLine),
+          newLine: Math.max(1, newLine)
+        };
+      }
+      if (line.type === "context") {
+        oldLine += 1;
+        newLine += 1;
+      } else if (line.type === "add") {
+        newLine += 1;
+      } else if (line.type === "delete") {
+        oldLine += 1;
+      }
+    }
+  }
+
+  return null;
+}
+
+function revealStudioAiPatchChange(change) {
+  const location = firstStudioAiPatchLocation(change);
+  if (!location) {
+    return;
+  }
+
+  requestAnimationFrame(() => {
+    if (state.studio.editorKind === "monaco-diff" && state.studio.editor) {
+      const originalEditor = state.studio.editor.getOriginalEditor?.();
+      const modifiedEditor = state.studio.editor.getModifiedEditor?.();
+      const originalModel = originalEditor?.getModel?.();
+      const modifiedModel = modifiedEditor?.getModel?.();
+      const oldLine = originalModel ? clampEditorLine(originalModel, location.oldLine) : location.oldLine;
+      const newLine = modifiedModel ? clampEditorLine(modifiedModel, location.newLine) : location.newLine;
+
+      originalEditor?.revealLineInCenter?.(oldLine);
+      modifiedEditor?.revealLineInCenter?.(newLine);
+      originalEditor?.setPosition?.({ lineNumber: oldLine, column: 1 });
+      modifiedEditor?.setPosition?.({ lineNumber: newLine, column: 1 });
+      modifiedEditor?.focus?.();
+      return;
+    }
+
+    if (state.studio.editorKind === "textarea-diff" && state.studio.editor) {
+      const offset = offsetForLineColumn(state.studio.editor.value, location.oldLine, 1);
+      state.studio.editor.focus();
+      state.studio.editor.setSelectionRange(offset, offset);
+    }
+  });
 }
 
 function revealStudioCheckNote(line, column = 1) {

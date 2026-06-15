@@ -16,7 +16,7 @@
   <a href="https://www.npmjs.com/package/pressship"><img alt="npm" src="https://img.shields.io/npm/v/pressship?color=3858e9&logo=npm&logoColor=white&style=flat-square" /></a>
   <a href="https://wordpress.org/plugins/developers/"><img alt="WordPress.org" src="https://img.shields.io/badge/WordPress.org-plugin%20directory-21759b?logo=wordpress&logoColor=white&style=flat-square" /></a>
   <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-3858e9?style=flat-square" /></a>
-  <a href="https://github.com/f/pressship"><img alt="GitHub stars" src="https://img.shields.io/github/stars/f/pressship?style=flat-square&logo=github&color=1e293b" /></a>
+  <a href="https://github.com/Automattic/pressship"><img alt="GitHub stars" src="https://img.shields.io/github/stars/Automattic/pressship?style=flat-square&logo=github&color=1e293b" /></a>
 </p>
 
 <p align="center">
@@ -70,6 +70,7 @@ That's it. Pressship handles browser-based login, packaging, readme validation, 
 - **Submission state inspector** — reads the logged-in developer page to surface review status, slug, reupload availability, and Plugin Check links.
 - **SVN release workflow** — handles checkout, trunk sync, tag creation, and commit.
 - **WordPress Playground demos** — boot any local path or hosted slug in Playground using the plugin's own WP/PHP requirements.
+- **Pressship Studio** — a local VS Code-style workspace with file tabs, Playground previews, AI assistance, release management, package-size checks, and CLI command hints in the terminal.
 - **`.pressshipignore` + glob ignores** — sensible defaults, easy per-command overrides.
 - **Agent skill included** — a Pressship publishing skill for coding agents (Codex, Claude Code, etc.).
 - **Beautiful terminal UX** — colored output, progress indicators, structured findings.
@@ -115,7 +116,7 @@ pressship <command> --help
 Pressship can also be installed as a WP-CLI package:
 
 ```bash
-wp package install f/pressship
+wp package install Automattic/pressship
 ```
 
 That adds a `wp ship` command:
@@ -260,7 +261,9 @@ pressship studio --no-open
 pressship studio --port 9478
 ```
 
-`studio` starts a localhost-only Pressship Studio workspace. It lists plugins from the saved WordPress.org session, remembers local plugin paths, clones and updates WordPress.org SVN checkouts, shows plugin metadata and readmes, opens local plugins in a VS Code-style editor, streams Playground output into the Studio terminal, previews Playground in an iframe, checks version state, bumps patch/minor/major versions, and runs dry-run-first publish/release flows.
+`studio` starts a localhost-only Pressship Studio workspace. It lists plugins from the saved WordPress.org session, remembers local plugin paths, clones and updates WordPress.org SVN checkouts, shows plugin metadata and readmes, opens local plugins in a VS Code-style editor, streams Playground output into the Studio terminal, previews Playground in an iframe, checks package size, manages `.pressshipignore`, checks version state, bumps patch/minor/major versions, and runs dry-run-first publish/release flows.
+
+Studio also prints the equivalent `npx pressship ...` command in its terminal for CLI-backed actions such as Playground, Plugin Check, package size, version bumps, and publish dry runs.
 
 By default it binds to `127.0.0.1`, generates a per-run token for mutating API requests, and uses the same local Pressship config directory as the CLI.
 
@@ -406,13 +409,13 @@ pressship release ./my-plugin --no-install-svn
 Pressship ships with a publishing skill for coding agents (Codex, Claude Code, etc.). It teaches your agent to publish WordPress plugins cautiously — dry-run first, state-aware, with a final review step before any upload.
 
 ```bash
-npx skills add f/pressship --skill wordpress-plugin-publish -a codex
+npx skills add Automattic/pressship --skill wordpress-plugin-publish -a codex
 ```
 
 Replace `codex` with another supported agent name, e.g. `claude-code`. List available skills first:
 
 ```bash
-npx skills add f/pressship --list
+npx skills add Automattic/pressship --list
 ```
 
 ## Configuration

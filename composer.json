@@ -1,5 +1,5 @@
 {
-  "name": "f/pressship",
+  "name": "automattic/pressship",
   "type": "wp-cli-package",
   "description": "Run Pressship from WP-CLI by forwarding to the Node.js Pressship package.",
   "homepage": "https://pressship.org",
@@ -22,7 +22,7 @@
     ]
   },
   "support": {
-    "issues": "https://github.com/f/pressship/issues",
-    "source": "https://github.com/f/pressship"
+    "issues": "https://github.com/Automattic/pressship/issues",
+    "source": "https://github.com/Automattic/pressship"
   }
 }
