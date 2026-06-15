@@ -1311,8 +1311,9 @@ function renderRemote() {
 }
 
 function remoteCard(plugin) {
-  const inLibrary = state.local.find((entry) => entry.slug === plugin.slug);
-  const primaryLabel = inLibrary ? "Open in Studio" : "Open in Library";
+  const localState = remotePluginLocalState(plugin);
+  const inLibrary = localState.entry;
+  const primaryLabel = inLibrary ? "Open in Studio" : "Clone to Local";
   const primaryAction = inLibrary
     ? `data-action="studio" data-scope="local" data-id="${escapeAttr(inLibrary.id)}"`
     : `data-action="open-in-library" data-slug="${escapeAttr(plugin.slug)}"`;
@@ -1321,7 +1322,7 @@ function remoteCard(plugin) {
   const description = plugin.author ? `By ${plugin.author}` : "WordPress.org plugin";
 
   return `
-    <article class="ps-plugin-card${inLibrary ? " is-in-library" : ""}" data-slug="${escapeAttr(plugin.slug)}">
+    <article class="ps-plugin-card${inLibrary ? " is-in-library" : " is-not-cloned"}" data-slug="${escapeAttr(plugin.slug)}">
       <header class="ps-plugin-card-header">
         <span class="ps-plugin-card-icon" aria-hidden="true">${escapeHtml(initials)}</span>
         <div class="ps-plugin-card-title">
@@ -1345,6 +1346,13 @@ function remoteCard(plugin) {
           <dd>${roleBadges}</dd>
         </div>
       </dl>
+      <div class="ps-plugin-card-status ps-plugin-card-local-state" title="${escapeAttr(localState.title)}">
+        <span class="badge badge-${escapeAttr(localState.tone)}">
+          <span class="dashicons ${escapeAttr(localState.icon)}" aria-hidden="true"></span>
+          ${escapeHtml(localState.label)}
+        </span>
+        <small>${escapeHtml(localState.note)}</small>
+      </div>
       <footer class="ps-plugin-card-footer">
         <button type="button" class="button button-primary ps-plugin-card-primary" ${primaryAction}>
           <span class="dashicons ${inLibrary ? "dashicons-editor-code" : "dashicons-download"}" aria-hidden="true"></span>
@@ -1356,6 +1364,55 @@ function remoteCard(plugin) {
       </footer>
     </article>
   `;
+}
+
+function remotePluginLocalState(plugin) {
+  const matches = state.local.filter((entry) => entry.slug === plugin.slug);
+  const cloned = matches.find((entry) => entry.source === "clone" && entry.exists !== false);
+  const tracked = matches.find((entry) => entry.exists !== false);
+  const missing = matches.find((entry) => entry.exists === false);
+
+  if (cloned) {
+    return {
+      entry: cloned,
+      label: "Cloned locally",
+      note: cloned.path || "SVN checkout is tracked in Studio.",
+      title: cloned.path || "This WordPress.org plugin has a local SVN checkout.",
+      tone: "soft-success",
+      icon: "dashicons-yes-alt"
+    };
+  }
+
+  if (tracked) {
+    return {
+      entry: tracked,
+      label: "Tracked locally",
+      note: tracked.path || "Matching local folder is tracked in Studio.",
+      title: tracked.path || "A matching local plugin folder is tracked in Studio.",
+      tone: "soft-success",
+      icon: "dashicons-admin-site-alt3"
+    };
+  }
+
+  if (missing) {
+    return {
+      entry: null,
+      label: "Local path missing",
+      note: "Clone to recreate the local checkout.",
+      title: missing.path || "The previous local folder is no longer available.",
+      tone: "soft-warning",
+      icon: "dashicons-warning"
+    };
+  }
+
+  return {
+    entry: null,
+    label: "Not cloned",
+    note: "Clone this WordPress.org plugin to work on it locally.",
+    title: "This WordPress.org plugin is not cloned into the local library.",
+    tone: "soft-warning",
+    icon: "dashicons-download"
+  };
 }
 
 function remoteRoleChips(roles = []) {
@@ -1400,6 +1457,9 @@ async function loadLocal() {
       state.local.map((plugin, index) => [plugin.id, versionStates[index]])
     );
     renderLocal();
+    if (!state.remoteLoading && state.remote.length) {
+      renderRemote();
+    }
   } catch (error) {
     state.localError = error.message;
     els.local.innerHTML = emptyState({
@@ -7331,14 +7391,14 @@ function escapeAttr(value) {
 }
 
 /* ===================================================================
- * Open in Library — clones from WordPress.org SVN or jumps to existing
+ * Clone to Local — clones from WordPress.org SVN or jumps to existing
  * =================================================================== */
 
 async function openInLibrary(slug) {
   if (!slug) {
     return;
   }
-  const existing = state.local.find((entry) => entry.slug === slug);
+  const existing = remotePluginLocalState({ slug }).entry;
   if (existing) {
     await openStudio("local", existing.id);
     return;

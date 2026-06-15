@@ -6712,6 +6712,27 @@ td code {
   gap: 5px;
 }
 
+.ps-plugin-card-local-state {
+  align-items: center;
+  gap: 8px;
+  min-height: 24px;
+}
+
+.ps-plugin-card-local-state .badge {
+  flex: 0 0 auto;
+}
+
+.ps-plugin-card-local-state small {
+  color: var(--wp-text-muted);
+  display: block;
+  flex: 1 1 auto;
+  font-size: 12px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .ps-plugin-card-meta {
   display: grid;
   gap: 8px 16px;
