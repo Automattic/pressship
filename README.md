@@ -555,7 +555,7 @@ Pressship is built on the work of many people and projects:
 
 ## Disclaimer
 
-**Pressship is an independent, community project.** It is not affiliated with, endorsed by, or sponsored by WordPress, WordPress.org, the WordPress Foundation, or Automattic. The WordPress® trademark is the property of the WordPress Foundation.
+**Pressship is an Automattic-maintained community project.** It is currently unofficial tooling for WordPress.org plugin publishing workflows, not an official WordPress.org service or a WordPress Foundation project. WordPress® is a trademark of the WordPress Foundation.
 
 ## License
 
