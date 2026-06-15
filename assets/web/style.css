@@ -4536,6 +4536,10 @@ body.is-studio-resizing-v iframe {
   color: #d4d4d4;
 }
 
+.terminal-command {
+  color: #facc15;
+}
+
 .terminal-success {
   color: #86efac;
 }

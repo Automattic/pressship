@@ -6,6 +6,8 @@ let markdownParser = basicMarkdownToHtml;
 let studioPackageSizePollTimer = null;
 let monacoConfigured = false;
 
+const STUDIO_CLI_PREFIX = "npx pressship";
+
 void import("/vendor/marked.esm.js")
   .then(({ marked }) => {
     marked.use({
@@ -798,7 +800,10 @@ function primeInitialRouteState(route) {
     checkJobId: null,
     activeTab: "editor",
     openFiles: filePath ? [filePath] : [],
-    terminal: [`Opening ${route.studio.project} from URL...`],
+    terminal: [
+      `Opening ${route.studio.project} from URL...`,
+      { message: `$ ${studioOpenCliCommand()}`, tone: "command" }
+    ],
     collapsedFolders: new Set(),
     expandedIgnoredFolders: new Set(),
     loadingFolders: new Set(),
@@ -1548,7 +1553,10 @@ async function openStudio(scope, id, options = {}) {
     collapsedFolders: new Set(),
     expandedIgnoredFolders: new Set(),
     loadingFolders: new Set(),
-    terminal: [`Pressship Studio opened for ${scope === "local" ? "local plugin" : "WordPress.org plugin"} ${id}.`],
+    terminal: [
+      `Pressship Studio opened for ${scope === "local" ? "local plugin" : "WordPress.org plugin"} ${id}.`,
+      { message: `$ ${studioOpenCliCommand()}`, tone: "command" }
+    ],
     aiPrompt: "",
     aiJobId: null,
     aiRunning: false,
@@ -3776,6 +3784,135 @@ function appendStudioTerminal(message, tone = "muted") {
   }
 }
 
+function appendStudioCliCommand(command) {
+  if (state.activeView !== "studio" || !command || !Array.isArray(state.studio.terminal)) {
+    return;
+  }
+  state.studio.terminalOpen = true;
+  appendStudioTerminal(`$ ${command}`, "command");
+}
+
+function quoteCliArg(value) {
+  const text = String(value ?? "").trim();
+  if (!text) {
+    return "''";
+  }
+  return /^[A-Za-z0-9_@%+=:,./-]+$/.test(text)
+    ? text
+    : `'${text.replace(/'/g, "'\\''")}'`;
+}
+
+function studioCliCommand(parts) {
+  return [STUDIO_CLI_PREFIX, ...parts].filter(Boolean).join(" ");
+}
+
+function studioOpenCliCommand() {
+  const parts = ["studio"];
+  const host = window.location.hostname;
+  const port = window.location.port;
+  if (host && !["127.0.0.1", "localhost"].includes(host)) {
+    parts.push("--host", quoteCliArg(host));
+  }
+  if (port && port !== "9477") {
+    parts.push("--port", quoteCliArg(port));
+  }
+  return studioCliCommand(parts);
+}
+
+function localPluginForCli(localId = state.studio.id) {
+  return state.local.find((plugin) => plugin.id === localId) ??
+    (state.studio.scope === "local" && state.studio.id === localId ? state.studio.plugin : null);
+}
+
+function localPluginCliTarget(localId = state.studio.id) {
+  const plugin = localPluginForCli(localId);
+  return quoteCliArg(plugin?.path || plugin?.slug || localId || ".");
+}
+
+function studioCliIgnoreFlags(localId = state.studio.id) {
+  if (localId !== state.studio.id) {
+    return [];
+  }
+  return studioIgnorePatterns().flatMap((pattern) => ["--ignore", quoteCliArg(pattern)]);
+}
+
+function studioPublishCliCommand(localId, action, options = {}) {
+  const normalizedAction = ["submit", "release"].includes(action) ? action : "auto";
+  const parts = ["publish", localPluginCliTarget(localId)];
+  if (normalizedAction !== "auto") {
+    parts.push(`--${normalizedAction}`);
+  }
+  if (options.dryRun) {
+    parts.push("--dry-run");
+  }
+  parts.push(...studioCliIgnoreFlags(localId), "--yes");
+  return studioCliCommand(parts);
+}
+
+function studioPlaygroundCliCommand(input) {
+  const target = input.scope === "local" ? localPluginCliTarget(input.id) : quoteCliArg(input.id);
+  const settings = state.settings ?? {};
+  const parts = ["demo", target, "--reset", "--skip-browser"];
+  if (input.wpVersion && input.wpVersion !== "latest") {
+    parts.push("--wp", quoteCliArg(input.wpVersion));
+  }
+  if (settings.playgroundDatabaseMode && settings.playgroundDatabaseMode !== "auto") {
+    parts.push("--database", quoteCliArg(settings.playgroundDatabaseMode));
+  }
+  if (settings.playgroundDatabaseMode === "mysql") {
+    parts.push(
+      "--mysql-host",
+      quoteCliArg(settings.playgroundMysqlHost ?? "127.0.0.1"),
+      "--mysql-port",
+      quoteCliArg(settings.playgroundMysqlPort ?? 3306),
+      "--mysql-user",
+      quoteCliArg(settings.playgroundMysqlUser ?? "root"),
+      "--mysql-database-prefix",
+      quoteCliArg(settings.playgroundMysqlDatabasePrefix ?? "pressship_playground")
+    );
+    if (settings.playgroundMysqlPassword) {
+      parts.push("--mysql-password", quoteCliArg(settings.playgroundMysqlPassword));
+    }
+  }
+  return studioCliCommand(parts);
+}
+
+function studioCliCommandForJob(input) {
+  if (state.activeView !== "studio") {
+    return "";
+  }
+  switch (input?.type) {
+    case "clone": {
+      const parts = ["get", quoteCliArg(input.slug)];
+      if (input.destination) {
+        parts.push(quoteCliArg(input.destination));
+      }
+      return studioCliCommand(parts);
+    }
+    case "play":
+      return studioPlaygroundCliCommand(input);
+    case "check":
+      return studioCliCommand([
+        "verify",
+        localPluginCliTarget(input.localId),
+        "--skip-readme-validator",
+        ...studioCliIgnoreFlags(input.localId)
+      ]);
+    case "dry-run-publish":
+      return studioPublishCliCommand(input.localId, input.action, { dryRun: true });
+    case "confirm-publish": {
+      const dryRun = state.studio.release?.dryRun;
+      if (!dryRun?.approvalId || dryRun.approvalId !== input.approvalId) {
+        return "";
+      }
+      const action = dryRun?.route?.action ?? "auto";
+      return state.studio.id ? studioPublishCliCommand(state.studio.id, action) : "";
+    }
+    default:
+      return "";
+  }
+}
+
 function selectedStudioAiAssistant() {
   return state.settings?.aiAssistant ?? "none";
 }
@@ -3903,6 +4040,15 @@ async function refreshStudioPackageSize(options = {}) {
   }
 
   const localId = state.studio.id;
+  if (options.notify) {
+    appendStudioCliCommand(studioCliCommand([
+      "pack",
+      localPluginCliTarget(localId),
+      "--no-verify",
+      ...studioCliIgnoreFlags(localId),
+      "--json"
+    ]));
+  }
   state.studio.packageSize = {
     ...(state.studio.packageSize ?? createInitialStudioPackageSize()),
     loading: true,
@@ -5552,6 +5698,12 @@ function localCard(plugin, versionState) {
  * =================================================================== */
 
 async function showDetails(scope, id) {
+  if (state.activeView === "studio") {
+    appendStudioCliCommand(studioCliCommand([
+      "info",
+      scope === "local" ? localPluginCliTarget(id) : quoteCliArg(id)
+    ]));
+  }
   els.detail.classList.add("is-open");
   els.detail.setAttribute("aria-hidden", "false");
   els.detail.innerHTML = `
@@ -5654,6 +5806,7 @@ function closeDetail() {
  * =================================================================== */
 
 async function createJob(body) {
+  appendStudioCliCommand(studioCliCommandForJob(body));
   const job = await api("/api/jobs", { method: "POST", body });
   upsertJob(job);
   subscribeJob(job.id);
@@ -7996,6 +8149,7 @@ async function switchStudioReleaseTag(tag, resolution) {
 
 async function bumpStudioReleaseVersion(localId, bump) {
   if (!localId || !["patch", "minor", "major"].includes(bump)) return;
+  appendStudioCliCommand(studioCliCommand(["version", bump, localPluginCliTarget(localId)]));
   if (state.studio.id !== localId) {
     // Outside the funnel (e.g. invoked from a command palette). Run without
     // the inline busy state — the global notice is enough feedback.
