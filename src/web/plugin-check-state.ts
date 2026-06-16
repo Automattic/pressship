@@ -47,6 +47,10 @@ export async function readStudioPluginCheckState(pluginId: string): Promise<Stud
   return (await readStudioPluginCheckStateStore()).states[pluginId];
 }
 
+export async function readAllStudioPluginCheckStates(): Promise<Record<string, StudioPluginCheckState>> {
+  return (await readStudioPluginCheckStateStore()).states;
+}
+
 export async function writeStudioPluginCheckState(input: {
   pluginId: string;
   pluginPath: string;

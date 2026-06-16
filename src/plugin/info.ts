@@ -151,6 +151,31 @@ export function localPluginInfo(project: PluginProject): LocalPluginInfo {
   };
 }
 
+let latestWordPressVersionCache: { value: string | undefined; fetchedAt: number } | undefined;
+const LATEST_WP_VERSION_TTL_MS = 6 * 60 * 60 * 1000;
+
+export async function fetchLatestWordPressVersion(): Promise<string | undefined> {
+  const now = Date.now();
+  if (latestWordPressVersionCache && now - latestWordPressVersionCache.fetchedAt < LATEST_WP_VERSION_TTL_MS) {
+    return latestWordPressVersionCache.value;
+  }
+
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 4000);
+    const response = await fetch("https://api.wordpress.org/core/version-check/1.7/", {
+      signal: controller.signal
+    }).finally(() => clearTimeout(timeout));
+    const body = (await response.json()) as { offers?: Array<{ version?: string; current?: string }> };
+    const current = body.offers?.find((offer) => offer.version)?.version ?? body.offers?.[0]?.current;
+    latestWordPressVersionCache = { value: current, fetchedAt: now };
+    return current;
+  } catch {
+    latestWordPressVersionCache = { value: latestWordPressVersionCache?.value, fetchedAt: now };
+    return latestWordPressVersionCache.value;
+  }
+}
+
 export async function fetchHostedPluginInfo(slug: string): Promise<HostedPluginInfo> {
   const url = new URL("https://api.wordpress.org/plugins/info/1.2/");
   url.searchParams.set("action", "plugin_information");

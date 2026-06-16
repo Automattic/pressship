@@ -31,7 +31,7 @@ import {
   publicDemoLaunchPlan,
   resetPlaygroundSite
 } from "../plugin/demo.js";
-import { fetchHostedPluginInfo, getPluginInfo } from "../plugin/info.js";
+import { fetchHostedPluginInfo, fetchLatestWordPressVersion, getPluginInfo } from "../plugin/info.js";
 import { getPluginList } from "../plugin/list.js";
 import { bumpVersion, updatePluginHeaderVersion, updateReadmeStableTag, type VersionBump } from "../plugin/version.js";
 import { checkoutOrUpdatePlugin, resolveCheckoutPath } from "../svn/get.js";
@@ -40,6 +40,7 @@ import { createReleaseCommandPlan, svnRepositoryExists } from "../svn/release.js
 import { publish } from "../wordpress-org/publish.js";
 import { fetchPluginStates, matchesPluginState } from "../wordpress-org/state.js";
 import { runPluginCheck } from "../checks/plugin-check.js";
+import { validateReadmeFile } from "../checks/readme-validator.js";
 import { hasBlockingFindings } from "../checks/summary.js";
 import { ensureCacheDir, getConfigDir, pathExists } from "../utils/paths.js";
 import { addLocalPluginPath, getLocalPlugin, listLocalPlugins, removeLocalPlugin } from "./registry.js";
@@ -72,11 +73,13 @@ import {
   summarizeStudioPluginCheckFindings
 } from "./plugin-check.js";
 import {
+  readAllStudioPluginCheckStates,
   readStudioPluginCheckState,
   removeStudioPluginCheckFindingsForFiles,
   removeStudioPluginCheckState,
   writeStudioPluginCheckState
 } from "./plugin-check-state.js";
+import type { Finding, PluginProject } from "../types.js";
 
 const nodeRequire = createRequire(import.meta.url);
 const mutationMethods = new Set(["POST", "PUT", "PATCH", "DELETE"]);
@@ -131,7 +134,8 @@ const jobSchema = z.discriminatedUnion("type", [
   }),
   z.object({
     type: z.literal("check"),
-    localId: z.string().min(1)
+    localId: z.string().min(1),
+    skipReadmeValidator: z.boolean().default(false)
   }),
   z.object({
     type: z.literal("ai-chat"),
@@ -166,6 +170,7 @@ export type WebServerOptions = {
 };
 
 export type WebServerDependencies = {
+  validateReadmeFile?: typeof validateReadmeFile;
   runPluginCheck?: typeof runPluginCheck;
   stagePluginDirectory?: typeof stagePluginDirectory;
 };
@@ -341,6 +346,10 @@ async function handleApi(
     const loggedIn = await hasSavedSession();
     const account = loggedIn ? await getWordPressOrgAccount().catch(() => undefined) : undefined;
     const settings = await readWebSettings();
+    const [pluginCheckStates, latestWordPressVersion] = await Promise.all([
+      readAllStudioPluginCheckStates().catch(() => ({})),
+      loggedIn ? fetchLatestWordPressVersion().catch(() => undefined) : Promise.resolve(undefined)
+    ]);
     sendJson(response, 200, {
       token: context.token,
       loggedIn,
@@ -352,7 +361,21 @@ async function handleApi(
       settings,
       aiHarnesses: getAiAssistantHarnesses(),
       jobs: context.jobs.list(),
-      playgrounds: listPlaygrounds(context.playgrounds)
+      playgrounds: listPlaygrounds(context.playgrounds),
+      latestWordPressVersion,
+      pluginCheckSummaries: Object.fromEntries(
+        Object.entries(pluginCheckStates).map(([id, value]) => [
+          id,
+          {
+            slug: value.slug,
+            name: value.name,
+            checkedAt: value.checkedAt,
+            skipped: value.skipped,
+            available: value.available,
+            summary: value.summary
+          }
+        ])
+      )
     });
     return;
   }
@@ -699,7 +722,7 @@ function createWebJob(
   }
 
   if (input.type === "check") {
-    return jobs.create("check", "Plugin Check", (context) => pluginCheckJob(input.localId, context, dependencies));
+    return jobs.create("check", "Verify plugin", (context) => pluginCheckJob(input, context, dependencies));
   }
 
   if (input.type === "ai-chat") {
@@ -856,25 +879,27 @@ async function playPluginJob(
 }
 
 async function pluginCheckJob(
-  localId: string,
+  input: Extract<z.infer<typeof jobSchema>, { type: "check" }>,
   context: WebJobContext,
   dependencies: WebServerDependencies = {}
 ) {
-  const local = await requireLocalPlugin(localId);
+  const local = await requireLocalPlugin(input.localId);
   const source = resolvePluginProjectPath(local.path);
   const project = await discoverPluginProject(source.rootDir);
   const stagePlugin = dependencies.stagePluginDirectory ?? stagePluginDirectory;
   const pluginChecker = dependencies.runPluginCheck ?? runPluginCheck;
+  const readmeValidator = dependencies.validateReadmeFile ?? validateReadmeFile;
   const stageRoot = await mkdtemp(path.join(tmpdir(), "pressship-studio-check-"));
 
-  context.status(`Running WordPress.org Plugin Check for ${project.headers.pluginName}.`);
+  context.status(`Verifying ${project.headers.pluginName}.`);
   try {
+    const readmeFindings = await validateStudioReadme(project, source.rootDir, readmeValidator, {
+      skipReadmeValidator: input.skipReadmeValidator
+    });
     const checkTarget = await stagePlugin(project, { outputDir: stageRoot });
     const result = await pluginChecker(checkTarget.path, { mode: "new" });
-    const findings = await addStudioPluginCheckLineHints(
-      normalizeStudioPluginCheckFindings(result.findings, checkTarget.path, project.slug),
-      source.rootDir
-    );
+    const pluginCheckFindings = normalizeStudioPluginCheckFindings(result.findings, checkTarget.path, project.slug);
+    const findings = await addStudioPluginCheckLineHints([...readmeFindings, ...pluginCheckFindings], source.rootDir);
     const summary = summarizeStudioPluginCheckFindings(findings);
     const checkedAt = new Date().toISOString();
     const persisted = await writeStudioPluginCheckState({
@@ -889,7 +914,7 @@ async function pluginCheckJob(
       checkedAt
     });
     context.log(
-      `Plugin Check finished: ${summary.error} errors, ${summary.warning} warnings, ${summary.info} info.`
+      `Verify finished: ${summary.error} errors, ${summary.warning} warnings, ${summary.info} info.`
     );
 
     return {
@@ -901,6 +926,7 @@ async function pluginCheckJob(
       },
       skipped: result.skipped,
       available: result.available,
+      readmeValidatorSkipped: input.skipReadmeValidator,
       findings,
       summary,
       checkedAt: persisted.checkedAt,
@@ -909,6 +935,35 @@ async function pluginCheckJob(
   } finally {
     await rm(stageRoot, { recursive: true, force: true });
   }
+}
+
+async function validateStudioReadme(
+  project: PluginProject,
+  pluginRoot: string,
+  readmeValidator: typeof validateReadmeFile,
+  options: { skipReadmeValidator: boolean }
+): Promise<Finding[]> {
+  if (!project.readmePath) {
+    return [
+      {
+        severity: "error",
+        code: "readme.missing",
+        file: "readme.txt",
+        message: "WordPress.org packages require a readme.txt file."
+      }
+    ];
+  }
+
+  const readmePath = path.relative(pluginRoot, project.readmePath).split(path.sep).join("/");
+  const result = await readmeValidator(project.readmePath, {
+    skipRemote: options.skipReadmeValidator,
+    headless: true
+  });
+
+  return result.findings.map((finding) => ({
+    ...finding,
+    file: finding.file ?? readmePath
+  }));
 }
 
 async function aiChatJob(

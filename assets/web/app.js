@@ -219,6 +219,7 @@ function createInitialStudioRelease() {
     newTagError: "",
     customVersionDraft: "",
     customVersionError: "",
+    skipReadmeValidation: false,
     bumpInFlight: null,
     bumpSuccess: null,
     bumpError: "",
@@ -412,6 +413,8 @@ function onStudioResizerKeydown(event) {
 
 const state = {
   bootstrap: null,
+  pluginCheckSummaries: {},
+  latestWordPressVersion: "",
   remote: [],
   remoteUsername: "",
   remoteLoading: true,
@@ -642,6 +645,12 @@ document.addEventListener("input", (event) => {
 });
 
 document.addEventListener("change", (event) => {
+  if (event.target?.id === "studio-skip-readme-validation") {
+    state.studio.release.skipReadmeValidation = Boolean(event.target.checked);
+    updateStudioSidebar();
+    return;
+  }
+
   if (event.target?.id !== "studio-plugin-picker") {
     return;
   }
@@ -921,6 +930,8 @@ async function boot() {
   state.settings = state.bootstrap.settings ?? null;
   state.playgrounds = state.bootstrap.playgrounds ?? [];
   state.aiAssistance.harnesses = state.bootstrap.aiHarnesses ?? [];
+  state.pluginCheckSummaries = state.bootstrap.pluginCheckSummaries ?? {};
+  state.latestWordPressVersion = state.bootstrap.latestWordPressVersion ?? "";
   const initialRoute = parseLocationRoute();
   primeInitialRouteState(initialRoute);
   renderAccount();
@@ -1991,7 +2002,7 @@ function normalizeStudioPlaygroundVersion(value) {
 
 async function runStudioCheck() {
   if (state.studio.scope !== "local" || !state.studio.id) {
-    notice("Plugin Check is available for local plugins.", "warning");
+    notice("Verify is available for local plugins.", "warning");
     return;
   }
 
@@ -2008,13 +2019,22 @@ async function runStudioCheck() {
   state.studio.checkRanAt = null;
   state.studio.terminalOpen = true;
   captureStudioEditorValue();
-  appendStudioTerminal("Running WordPress.org Plugin Check…", "status");
+  appendStudioTerminal(
+    state.studio.release.skipReadmeValidation
+      ? "Running verify with readme validator skipped…"
+      : "Running verify with readme validation and Plugin Check…",
+    "status"
+  );
   applyStudioCheckMarkers();
   renderStudio();
   remountStudioEditorIfNeeded();
   updateStudioControls();
 
-  const job = await createJob({ type: "check", localId: state.studio.id });
+  const job = await createJob({
+    type: "check",
+    localId: state.studio.id,
+    skipReadmeValidator: Boolean(state.studio.release.skipReadmeValidation)
+  });
   state.studio.checkJobId = job.id;
   updateStudioControls();
 }
@@ -2344,9 +2364,9 @@ function renderStudio() {
               <span class="dashicons dashicons-saved" aria-hidden="true"></span>
               <span>Save</span>
             </button>
-            <button class="studio-action-button studio-compact-button" type="button" data-action="studio-check" id="studio-check-button" aria-label="Run Plugin Check" title="Run Plugin Check" disabled>
+            <button class="studio-action-button studio-compact-button" type="button" data-action="studio-check" id="studio-check-button" aria-label="Run Verify" title="Run Verify" disabled>
               <span class="dashicons dashicons-yes-alt" aria-hidden="true"></span>
-              <span>Check</span>
+              <span>Verify</span>
             </button>
             ${renderStudioPackageSizeButton()}
             ${renderStudioThemeToggle()}
@@ -2478,7 +2498,7 @@ function renderStudioStatusBar() {
   const file = state.studio.selectedFile?.path ?? "No file selected";
   const check = state.studio.checkSummary
     ? `${state.studio.checkSummary.error || 0} errors, ${state.studio.checkSummary.warning || 0} warnings`
-    : "Plugin Check idle";
+    : "Verify idle";
   const assistant = selectedStudioAiAssistant();
   return `
     <footer class="studio-statusbar" aria-label="Studio status">
@@ -3658,10 +3678,10 @@ function renderStudioTerminal() {
 function renderStudioCheckNotes() {
   if (state.studio.checking) {
     return `
-      <aside class="studio-check-notes" aria-label="Plugin Check notes">
+      <aside class="studio-check-notes" aria-label="Validation notes">
         <div class="studio-check-note studio-check-note-status">
           <span class="dashicons dashicons-update" aria-hidden="true"></span>
-          <span>Plugin Check is running…</span>
+          <span>Verify is running…</span>
         </div>
       </aside>
     `;
@@ -3675,19 +3695,19 @@ function renderStudioCheckNotes() {
   if (!findings.length) {
     const total = state.studio.checkSummary.total ?? 0;
     return `
-      <aside class="studio-check-notes" aria-label="Plugin Check notes">
+      <aside class="studio-check-notes" aria-label="Validation notes">
         <div class="studio-check-note studio-check-note-${total ? "info" : "success"}">
           <span class="dashicons ${total ? "dashicons-info-outline" : "dashicons-yes-alt"}" aria-hidden="true"></span>
-          <span>${escapeHtml(total ? `${formatCheckCounts(state.studio.checkSummary)} in other files.` : "Plugin Check reported no findings.")}</span>
+          <span>${escapeHtml(total ? `${formatCheckCounts(state.studio.checkSummary)} in other files.` : "Verify reported no findings.")}</span>
         </div>
       </aside>
     `;
   }
 
   return `
-    <aside class="studio-check-notes" aria-label="Plugin Check notes">
+    <aside class="studio-check-notes" aria-label="Validation notes">
       <header>
-        <strong>Plugin Check</strong>
+        <strong>Validation</strong>
         <span>${escapeHtml(formatCheckCounts(studioCheckCountsForPath(state.studio.selectedFile?.path)))}</span>
       </header>
       <div class="studio-check-note-list">
@@ -3959,7 +3979,7 @@ function studioCliCommandForJob(input) {
       return studioCliCommand([
         "verify",
         localPluginCliTarget(input.localId),
-        "--skip-readme-validator",
+        ...(input.skipReadmeValidator ? ["--skip-readme-validator"] : []),
         ...studioCliIgnoreFlags(input.localId)
       ]);
     case "dry-run-publish":
@@ -4040,6 +4060,18 @@ function applyStudioCheckState(checkState) {
   state.studio.checkFindings = checkState.findings ?? [];
   state.studio.checkSummary = checkState.summary ?? null;
   state.studio.checkRanAt = checkState.checkedAt ?? null;
+
+  if (state.studio.id && state.studio.scope === "local" && checkState.summary) {
+    state.pluginCheckSummaries[state.studio.id] = {
+      slug: checkState.slug ?? state.studio.plugin?.slug,
+      name: checkState.name ?? state.studio.plugin?.name,
+      checkedAt: checkState.checkedAt,
+      skipped: checkState.skipped ?? false,
+      available: checkState.available ?? true,
+      summary: checkState.summary
+    };
+    renderDashboard();
+  }
 }
 
 function applyStudioIgnoreState(ignoreState) {
@@ -4693,11 +4725,11 @@ function updateStudioControls() {
   }
   if (studioCheck) {
     studioCheck.disabled = !canCheck;
-    studioCheck.setAttribute("aria-label", state.studio.checkSummary ? "Re-run Plugin Check" : "Run Plugin Check");
-    studioCheck.title = state.studio.checkSummary ? "Re-run Plugin Check" : "Run Plugin Check";
+    studioCheck.setAttribute("aria-label", state.studio.checkSummary ? "Re-run Verify" : "Run Verify");
+    studioCheck.title = state.studio.checkSummary ? "Re-run Verify" : "Run Verify";
     studioCheck.innerHTML = state.studio.checking
-      ? `<span class="dashicons dashicons-update" aria-hidden="true"></span><span>Checking</span>`
-      : `<span class="dashicons dashicons-yes-alt" aria-hidden="true"></span><span>${state.studio.checkSummary ? "Re-check" : "Check"}</span>`;
+      ? `<span class="dashicons dashicons-update" aria-hidden="true"></span><span>Verifying</span>`
+      : `<span class="dashicons dashicons-yes-alt" aria-hidden="true"></span><span>${state.studio.checkSummary ? "Re-verify" : "Verify"}</span>`;
   }
   if (studioSave) {
     studioSave.disabled = !canSaveStudioFile();
@@ -5329,13 +5361,17 @@ function renderDashboard() {
       <div id="dashboard-widgets" class="metabox-holder columns-2">
         <div id="postbox-container-1" class="postbox-container">
           <div class="meta-box-sortables">
+            ${renderDashboardOnboardingCard()}
             ${renderDashboardLocalWidget()}
-            ${renderDashboardAiCard()}
+            ${renderDashboardReleaseReadinessWidget()}
+            ${renderDashboardActivityWidget()}
           </div>
         </div>
         <div id="postbox-container-2" class="postbox-container">
           <div class="meta-box-sortables">
             ${renderDashboardAtGlanceWidget()}
+            ${renderDashboardPluginCheckWidget()}
+            ${renderDashboardCompatibilityWidget()}
             ${renderDashboardPlaygroundsCard()}
             ${renderDashboardAccountCard()}
           </div>
@@ -5423,8 +5459,6 @@ function renderDashboardAtGlanceWidget() {
   const localLabel = state.local.length === 1 ? "local plugin" : "local plugins";
   const remoteLabel = state.remote.length === 1 ? "WordPress.org plugin" : "WordPress.org plugins";
   const playgroundLabel = state.playgrounds.length === 1 ? "Playground running" : "Playgrounds running";
-  const account = state.bootstrap?.account?.username;
-  const accountLabel = account ? `Signed in as ${account}` : "WordPress.org not connected";
 
   return renderDashboardPostbox({
     id: "dashboard-at-a-glance",
@@ -5453,12 +5487,49 @@ function renderDashboardAtGlanceWidget() {
           view: "studio"
         })}
       </ul>
-      <div class="ps-dashboard-status">
-        <span class="dashicons ${account ? "dashicons-yes-alt" : "dashicons-warning"}" aria-hidden="true"></span>
-        <span>${escapeHtml(accountLabel)}</span>
-      </div>
+      ${renderDashboardReleaseStatusLine()}
     `
   });
+}
+
+function renderDashboardReleaseStatusLine() {
+  if (state.localLoading && !state.local.length) {
+    return `
+      <div class="ps-dashboard-status">
+        <span class="dashicons dashicons-update" aria-hidden="true"></span>
+        <span>Checking release state…</span>
+      </div>
+    `;
+  }
+
+  const summary = dashboardReleaseSummary();
+  let tone = "info";
+  let icon = "dashicons-info";
+  let text = "No local plugins to release yet.";
+
+  if (summary.total) {
+    if (summary.blocked > 0) {
+      tone = "error";
+      icon = "dashicons-warning";
+      text = `${summary.blocked} blocked from release · ${summary.ready} ready`;
+    } else if (summary.behind > 0) {
+      tone = "warning";
+      icon = "dashicons-update";
+      text = `${summary.behind} behind WordPress.org · ${summary.ready} ready`;
+    } else {
+      tone = "success";
+      icon = "dashicons-yes-alt";
+      text = `All ${summary.ready} plugin${summary.ready === 1 ? "" : "s"} ready to ship`;
+    }
+  }
+
+  return `
+    <button class="ps-dashboard-status ps-dashboard-status-${escapeAttr(tone)}" type="button" data-view-button="release">
+      <span class="dashicons ${escapeAttr(icon)}" aria-hidden="true"></span>
+      <span>${escapeHtml(text)}</span>
+      <span class="dashicons dashicons-arrow-right-alt2 ps-dashboard-status-arrow" aria-hidden="true"></span>
+    </button>
+  `;
 }
 
 function renderDashboardGlanceItem({ icon, value, label, view, loading }) {
@@ -5609,11 +5680,94 @@ function renderDashboardPlaygroundsCard() {
   `;
 }
 
+function dashboardRemoteSummary() {
+  let cloned = 0;
+  let committer = 0;
+  let contributor = 0;
+
+  for (const plugin of state.remote) {
+    if (remotePluginLocalState(plugin).entry) {
+      cloned += 1;
+    }
+    const roles = Array.isArray(plugin.roles) ? plugin.roles : [];
+    if (roles.includes("committer")) {
+      committer += 1;
+    } else if (roles.includes("contributor")) {
+      contributor += 1;
+    }
+  }
+
+  const total = state.remote.length;
+  return { total, cloned, notCloned: Math.max(0, total - cloned), committer, contributor };
+}
+
 function renderDashboardAccountCard() {
-  const account = state.bootstrap?.account?.username;
+  const account = state.bootstrap?.account;
+  const username = account?.username;
+  const displayName = account?.displayName;
+  const profileUrl = account?.profileUrl;
   const loggedIn = Boolean(state.bootstrap?.loggedIn);
   const tone = loggedIn ? "success" : "warning";
   const label = loggedIn ? "Signed in" : "Not signed in";
+
+  if (!loggedIn) {
+    return renderDashboardPostbox({
+      id: "dashboard-wordpress-org",
+      title: "WordPress.org",
+      icon: "dashicons-admin-users",
+      actions: badge(label, tone),
+      body: `
+        <div class="ps-account-body">
+          <div class="ps-account-row">
+            <span class="ps-account-icon" aria-hidden="true">
+              <span class="dashicons dashicons-admin-users"></span>
+            </span>
+            <span class="ps-account-text">
+              <strong>Not connected</strong>
+              <small>Run <code>pressship login</code> in a terminal to clone, submit, and release.</small>
+            </span>
+          </div>
+          <div class="ps-widget-footer">
+            <button class="button button-ghost button-small" type="button" data-view-button="settings">
+              Settings
+              <span class="dashicons dashicons-arrow-right-alt2" aria-hidden="true"></span>
+            </button>
+          </div>
+        </div>
+      `
+    });
+  }
+
+  const summary = dashboardRemoteSummary();
+  const remoteValue = state.remoteLoading ? "…" : String(summary.total);
+  const clonedValue = state.remoteLoading ? "…" : String(summary.cloned);
+
+  const reach = dashboardReachSummary();
+  const reachBlock = !state.remoteLoading && reach.known
+    ? `<div class="ps-account-reach">
+         <span class="ps-account-reach-value">${escapeHtml(formatInstallCount(reach.total))}${reach.plus ? "+" : ""}</span>
+         <span class="ps-account-reach-label">combined active installs${reach.topName ? ` · ${escapeHtml(reach.topName)} leads` : ""}</span>
+       </div>`
+    : "";
+
+  const roleParts = [];
+  if (summary.committer) {
+    roleParts.push(`Committer on ${summary.committer}`);
+  }
+  if (summary.contributor) {
+    roleParts.push(`Contributor on ${summary.contributor}`);
+  }
+  const roleLine = !state.remoteLoading && roleParts.length
+    ? `<div class="ps-account-roles"><span class="dashicons dashicons-groups" aria-hidden="true"></span><span>${escapeHtml(roleParts.join(" · "))}</span></div>`
+    : "";
+
+  const profileLink = profileUrl
+    ? `<a class="button button-ghost button-small" href="${escapeAttr(profileUrl)}" target="_blank" rel="noopener noreferrer">
+         <span class="dashicons dashicons-external" aria-hidden="true"></span>
+         View profile
+       </a>`
+    : "";
+
   return renderDashboardPostbox({
     id: "dashboard-wordpress-org",
     title: "WordPress.org",
@@ -5626,11 +5780,28 @@ function renderDashboardAccountCard() {
             <span class="dashicons dashicons-admin-users"></span>
           </span>
           <span class="ps-account-text">
-            <strong>${escapeHtml(account ?? "not logged in")}</strong>
-            <small>${escapeHtml(loggedIn ? "Used for clone, submit, and release." : "Run pressship login in a terminal to connect.")}</small>
+            <strong>${escapeHtml(displayName || username || "WordPress.org account")}</strong>
+            <small>${escapeHtml(username ? `@${username}` : "Used for clone, submit, and release.")}</small>
           </span>
         </div>
+        ${reachBlock}
+        <ul class="ps-account-stats">
+          <li>
+            <button class="ps-account-stat" type="button" data-view-button="remote">
+              <strong>${escapeHtml(remoteValue)}</strong>
+              <span>on WordPress.org</span>
+            </button>
+          </li>
+          <li>
+            <button class="ps-account-stat" type="button" data-view-button="local">
+              <strong>${escapeHtml(clonedValue)}</strong>
+              <span>cloned locally</span>
+            </button>
+          </li>
+        </ul>
+        ${roleLine}
         <div class="ps-widget-footer">
+          ${profileLink}
           <button class="button button-ghost button-small" type="button" data-view-button="settings">
             Settings
             <span class="dashicons dashicons-arrow-right-alt2" aria-hidden="true"></span>
@@ -5641,71 +5812,679 @@ function renderDashboardAccountCard() {
   });
 }
 
-function renderDashboardAiCard() {
-  const selected = state.settings?.aiAssistant ?? "none";
-  const providers = aiAssistanceProviders();
-  const ready = providers.filter((p) => p.status === "ready");
-  const installed = providers.filter((p) => p.status === "installed" || p.status === "ready");
-  const active = providers.find((p) => p.id === selected);
+const VERSION_STATUS_META = {
+  missing_version: { label: "Missing version", tone: "error", icon: "dashicons-warning", action: "manage-release", actionLabel: "Fix" },
+  header_readme_mismatch: { label: "Version mismatch", tone: "error", icon: "dashicons-randomize", action: "manage-release", actionLabel: "Fix" },
+  duplicate_tag_blocked: { label: "Tag already shipped", tone: "error", icon: "dashicons-tag", action: "manage-release", actionLabel: "Bump" },
+  remote_newer: { label: "Behind WordPress.org", tone: "warning", icon: "dashicons-update", action: "version-state", actionLabel: "Details" },
+  unknown_svn_state: { label: "SVN state unknown", tone: "warning", icon: "dashicons-editor-help", action: "version-state", actionLabel: "Details" },
+  ready: { label: "Ready", tone: "success", icon: "dashicons-yes-alt", action: "manage-release", actionLabel: "Release" }
+};
 
-  let tone = "info";
-  let label = "Disabled";
-  if (selected === "none") {
-    tone = "warning";
-    label = "Disabled";
-  } else if (active?.status === "ready") {
-    tone = "success";
-    label = "Ready";
-  } else if (active?.status === "not_authenticated") {
-    tone = "warning";
-    label = "Needs login";
-  } else if (active?.status === "not_installed") {
-    tone = "error";
-    label = "Not installed";
+const BLOCKING_STATUS_ORDER = ["missing_version", "header_readme_mismatch", "duplicate_tag_blocked"];
+
+function versionStatusMeta(status) {
+  return VERSION_STATUS_META[status] ?? { label: labelize(status), tone: "info", icon: "dashicons-info", action: "version-state", actionLabel: "Details" };
+}
+
+function primaryVersionIssue(versionState) {
+  const statuses = versionState?.statuses ?? [];
+  const status =
+    BLOCKING_STATUS_ORDER.find((candidate) => statuses.includes(candidate)) ??
+    (statuses.includes("remote_newer") ? "remote_newer" : statuses.find((candidate) => candidate !== "ready"));
+  if (!status) {
+    return null;
+  }
+  const meta = versionStatusMeta(status);
+  const messageIndex = statuses.indexOf(status);
+  const message = versionState.messages?.[messageIndex] ?? versionState.messages?.[0] ?? meta.label;
+  return { status, message, ...meta };
+}
+
+function dashboardReleaseSummary() {
+  let ready = 0;
+  let blocked = 0;
+  let behind = 0;
+  let unknown = 0;
+  const attention = [];
+
+  for (const plugin of state.local) {
+    const versionState = state.versionStates.get(plugin.id);
+    if (!versionState || versionState.error || !Array.isArray(versionState.statuses)) {
+      unknown += 1;
+      continue;
+    }
+
+    const isBehind = versionState.statuses.includes("remote_newer");
+    if (versionState.releaseBlocked) {
+      blocked += 1;
+    } else if (isBehind) {
+      behind += 1;
+    } else {
+      ready += 1;
+    }
+
+    if (versionState.releaseBlocked || isBehind) {
+      const issue = primaryVersionIssue(versionState);
+      if (issue) {
+        attention.push({ plugin, versionState, issue });
+      }
+    }
   }
 
-  const chips = providers
-    .map((provider) => {
-      const isSelected = provider.id === selected && selected !== "none";
-      return `
-        <span class="ps-ai-chip ps-ai-chip-${escapeAttr(provider.status)}${isSelected ? " is-selected" : ""}" title="${escapeAttr(provider.detail)}">
-          <span class="ps-ai-chip-dot" aria-hidden="true"></span>
-          ${escapeHtml(provider.label)}
-        </span>
-      `;
-    })
-    .join("");
+  attention.sort((left, right) => issueWeight(right.issue) - issueWeight(left.issue));
+  return { total: state.local.length, ready, blocked, behind, unknown, attention };
+}
 
-  const hint =
-    selected === "none"
-      ? "Pick an assistant in Settings to enable AI inside Studio."
-      : active?.status === "ready"
-        ? `${active.label} is ready in Studio.`
-        : active?.status === "not_authenticated"
-          ? `${active.label} is installed but not signed in.`
-          : `${active?.label ?? "Assistant"} ${active?.status === "not_installed" ? "is not on PATH." : "needs attention."}`;
+function issueWeight(issue) {
+  if (issue.tone === "error") return 2;
+  if (issue.tone === "warning") return 1;
+  return 0;
+}
+
+function renderDashboardReleaseReadinessWidget() {
+  const loading = state.localLoading && !state.local.length;
+  const summary = dashboardReleaseSummary();
+
+  let tone = "info";
+  let label = "—";
+  if (!loading) {
+    if (!summary.total) {
+      tone = "info";
+      label = "No plugins";
+    } else if (summary.blocked > 0) {
+      tone = "error";
+      label = `${summary.blocked} blocked`;
+    } else if (summary.behind > 0) {
+      tone = "warning";
+      label = `${summary.behind} behind`;
+    } else {
+      tone = "success";
+      label = "All ready";
+    }
+  }
 
   return renderDashboardPostbox({
-    id: "dashboard-ai-assistance",
-    title: "AI Assistance",
-    icon: "dashicons-superhero",
-    actions: badge(label, tone),
-    body: `
-        <div class="ps-ai-chips">${chips}</div>
-        <p class="ps-widget-hint">${escapeHtml(hint)}</p>
-        <div class="ps-widget-footer">
-          <button class="button button-ghost button-small" type="button" data-action="refresh-ai-assistance">
-            <span class="dashicons dashicons-update" aria-hidden="true"></span>
-            Refresh
-          </button>
-          <button class="button button-ghost button-small" type="button" data-view-button="settings">
-            Configure
-            <span class="dashicons dashicons-arrow-right-alt2" aria-hidden="true"></span>
+    id: "dashboard-release-readiness",
+    title: "Release readiness",
+    icon: "ps-icon-rocket",
+    className: "ps-dashboard-main",
+    actions: loading ? "" : badge(label, tone),
+    body: renderDashboardReadinessBody(summary, loading)
+  });
+}
+
+function renderDashboardReadinessBody(summary, loading) {
+  if (loading) {
+    return `
+      <p class="ps-widget-intro">Checking version and release state for every local plugin…</p>
+      ${renderDashboardSkeletonRows(2)}
+    `;
+  }
+
+  if (!summary.total) {
+    return `
+      <div class="ps-empty-card">
+        <span class="dashicons ps-icon-rocket" aria-hidden="true"></span>
+        <strong>Nothing to release yet</strong>
+        <p>Add a local plugin folder, then Pressship flags version mismatches and duplicate tags before you publish.</p>
+        <div class="ps-empty-card-actions">
+          <button class="button button-primary" type="button" data-action="choose-local-folder">
+            <span class="dashicons dashicons-open-folder" aria-hidden="true"></span>
+            Choose Folder
           </button>
         </div>
-        <small class="ps-widget-meta">${installed.length} installed · ${ready.length} ready</small>
-    `
+      </div>
+    `;
+  }
+
+  if (!summary.attention.length) {
+    return `
+      <div class="ps-readiness-clear">
+        <span class="ps-readiness-clear-icon" aria-hidden="true">
+          <span class="dashicons dashicons-yes-alt"></span>
+        </span>
+        <div class="ps-readiness-clear-text">
+          <strong>Everything looks release-ready</strong>
+          <p>${escapeHtml(`All ${summary.ready} plugin${summary.ready === 1 ? "" : "s"} pass version checks. Open Release Management to ship.`)}</p>
+        </div>
+        <button class="button button-primary button-small" type="button" data-view-button="release">
+          <span class="dashicons ps-icon-rocket" aria-hidden="true"></span>
+          Release Management
+        </button>
+      </div>
+    `;
+  }
+
+  const visible = summary.attention.slice(0, 5);
+  const rows = visible.map(dashboardReadinessRow).join("");
+  const overflow = summary.attention.length > visible.length
+    ? `<div class="ps-widget-footer"><button class="button button-ghost button-small" type="button" data-view-button="release">See all ${summary.attention.length} flagged plugins<span class="dashicons dashicons-arrow-right-alt2" aria-hidden="true"></span></button></div>`
+    : "";
+
+  const blockedNote = summary.blocked
+    ? `${summary.blocked} blocked from release`
+    : `${summary.behind} behind WordPress.org`;
+
+  return `
+    <p class="ps-widget-intro">${escapeHtml(`${summary.attention.length} plugin${summary.attention.length === 1 ? "" : "s"} need a fix before release — ${blockedNote}.`)}</p>
+    <ul class="ps-attention-list">${rows}</ul>
+    ${overflow}
+  `;
+}
+
+function dashboardReadinessRow({ plugin, issue }) {
+  const name = plugin.name || plugin.slug || plugin.id;
+  return `
+    <li class="ps-attention-row ps-attention-${escapeAttr(issue.tone)}">
+      <span class="ps-attention-icon" aria-hidden="true">
+        <span class="dashicons ${escapeAttr(issue.icon)}"></span>
+      </span>
+      <button class="ps-attention-main" type="button" data-action="studio" data-scope="local" data-id="${escapeAttr(plugin.id)}" title="Open ${escapeAttr(name)} in Studio">
+        <span class="ps-attention-text">
+          <strong>${escapeHtml(name)}</strong>
+          <small>${escapeHtml(issue.message)}</small>
+        </span>
+      </button>
+      <span class="ps-attention-action">
+        ${badge(issue.label, issue.tone)}
+        <button class="button button-small" type="button" data-action="${escapeAttr(issue.action)}" data-id="${escapeAttr(plugin.id)}">${escapeHtml(issue.actionLabel)}</button>
+      </span>
+    </li>
+  `;
+}
+
+/* ===================================================================
+ * Dashboard: Recent activity
+ * =================================================================== */
+
+function renderDashboardActivityWidget() {
+  const jobs = Array.from(state.jobs.values()).sort((left, right) =>
+    String(right.createdAt ?? "").localeCompare(String(left.createdAt ?? ""))
+  );
+  const running = jobs.filter((job) => job.status === "running" || job.status === "queued").length;
+
+  const body = jobs.length
+    ? `<ul class="ps-activity-list">${jobs.slice(0, 5).map(dashboardActivityRow).join("")}</ul>`
+    : `
+        <div class="ps-side-empty ps-activity-empty">
+          <span class="dashicons dashicons-clock" aria-hidden="true"></span>
+          <span>No recent activity yet. Clone, check, dry-run, or release a plugin to see it here.</span>
+        </div>
+      `;
+
+  return renderDashboardPostbox({
+    id: "dashboard-activity",
+    title: "Recent activity",
+    icon: "dashicons-backup",
+    className: "ps-dashboard-main",
+    actions: running ? `<span class="ps-count-pill">${running} active</span>` : "",
+    body
   });
+}
+
+function dashboardActivityRow(job) {
+  const tone =
+    job.status === "failed"
+      ? "error"
+      : job.status === "succeeded"
+        ? "success"
+        : job.status === "cancelled"
+          ? "warning"
+          : "info";
+  return `
+    <li class="ps-activity-row">
+      <span class="ps-activity-icon ps-activity-${escapeAttr(tone)}" aria-hidden="true">
+        <span class="dashicons ${jobIcon(job.type)}"></span>
+      </span>
+      <span class="ps-activity-text">
+        <strong>${escapeHtml(job.title || jobTypeLabel(job.type))}</strong>
+        <small>${escapeHtml(formatRelativeTime(job.createdAt))}</small>
+      </span>
+      ${badge(job.status, tone)}
+    </li>
+  `;
+}
+
+function jobTypeLabel(type) {
+  switch (type) {
+    case "clone":
+      return "Clone plugin";
+    case "play":
+      return "Launch Playground";
+    case "check":
+      return "Verify plugin";
+    case "dry-run-publish":
+      return "Dry-run publish";
+    case "confirm-publish":
+      return "Publish";
+    default:
+      return "Task";
+  }
+}
+
+function formatRelativeTime(iso) {
+  if (!iso) {
+    return "";
+  }
+  const then = new Date(iso).getTime();
+  if (!Number.isFinite(then)) {
+    return String(iso);
+  }
+  const diffSeconds = Math.round((Date.now() - then) / 1000);
+  if (diffSeconds < 45) {
+    return "just now";
+  }
+  const minutes = Math.round(diffSeconds / 60);
+  if (minutes < 60) {
+    return `${minutes}m ago`;
+  }
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) {
+    return `${hours}h ago`;
+  }
+  const days = Math.round(hours / 24);
+  if (days < 7) {
+    return `${days}d ago`;
+  }
+  try {
+    return new Date(iso).toLocaleDateString([], { month: "short", day: "numeric" });
+  } catch {
+    return String(iso);
+  }
+}
+
+/* ===================================================================
+ * Dashboard: Validation health
+ * =================================================================== */
+
+function dashboardPluginCheckSummary() {
+  let checked = 0;
+  let errors = 0;
+  let warnings = 0;
+  let clean = 0;
+  const flagged = [];
+
+  for (const plugin of state.local) {
+    const entry = state.pluginCheckSummaries?.[plugin.id];
+    if (!entry || !entry.summary) {
+      continue;
+    }
+    checked += 1;
+    const summary = entry.summary;
+    if (summary.error > 0) {
+      errors += 1;
+      flagged.push({ plugin, entry, tone: "error" });
+    } else if (summary.warning > 0) {
+      warnings += 1;
+      flagged.push({ plugin, entry, tone: "warning" });
+    } else {
+      clean += 1;
+    }
+  }
+
+  flagged.sort(
+    (left, right) =>
+      right.entry.summary.error - left.entry.summary.error ||
+      right.entry.summary.warning - left.entry.summary.warning
+  );
+
+  return { checked, errors, warnings, clean, unchecked: state.local.length - checked, flagged };
+}
+
+function renderDashboardPluginCheckWidget() {
+  if (!state.local.length) {
+    return "";
+  }
+
+  const summary = dashboardPluginCheckSummary();
+
+  let tone = "info";
+  let label = "Not run";
+  if (summary.checked > 0) {
+    if (summary.errors > 0) {
+      tone = "error";
+      label = `${summary.errors} with errors`;
+    } else if (summary.warnings > 0) {
+      tone = "warning";
+      label = `${summary.warnings} with warnings`;
+    } else {
+      tone = "success";
+      label = "All clean";
+    }
+  }
+
+  let body;
+  if (summary.checked === 0) {
+    body = `
+      <div class="ps-side-empty">
+        <span class="dashicons dashicons-yes-alt" aria-hidden="true"></span>
+        <span>No Verify results yet. Open a plugin in Studio and run Verify.</span>
+      </div>
+    `;
+  } else if (!summary.flagged.length) {
+    body = `
+      <div class="ps-readiness-clear">
+        <span class="ps-readiness-clear-icon" aria-hidden="true">
+          <span class="dashicons dashicons-yes-alt"></span>
+        </span>
+        <div class="ps-readiness-clear-text">
+          <strong>No findings</strong>
+          <p>${escapeHtml(`All ${summary.checked} checked plugin${summary.checked === 1 ? "" : "s"} passed Verify.`)}</p>
+        </div>
+      </div>
+      ${dashboardPluginCheckFooter(summary)}
+    `;
+  } else {
+    const rows = summary.flagged.slice(0, 4).map(dashboardPluginCheckRow).join("");
+    body = `
+      <ul class="ps-attention-list">${rows}</ul>
+      ${dashboardPluginCheckFooter(summary)}
+    `;
+  }
+
+  return renderDashboardPostbox({
+    id: "dashboard-plugin-check",
+    title: "Validation health",
+    icon: "dashicons-shield",
+    actions: badge(label, tone),
+    body
+  });
+}
+
+function dashboardPluginCheckFooter(summary) {
+  return `
+    <small class="ps-widget-meta">${escapeHtml(
+      `${summary.checked} of ${state.local.length} checked · ${summary.clean} clean${summary.unchecked ? ` · ${summary.unchecked} not run` : ""}`
+    )}</small>
+  `;
+}
+
+function dashboardPluginCheckRow({ plugin, entry, tone }) {
+  const name = entry.name || plugin.name || plugin.slug || plugin.id;
+  const counts = [];
+  if (entry.summary.error) {
+    counts.push(`${entry.summary.error} error${entry.summary.error === 1 ? "" : "s"}`);
+  }
+  if (entry.summary.warning) {
+    counts.push(`${entry.summary.warning} warning${entry.summary.warning === 1 ? "" : "s"}`);
+  }
+  const detail = `${counts.join(" · ")}${entry.checkedAt ? ` · ${formatRelativeTime(entry.checkedAt)}` : ""}`;
+  return `
+    <li class="ps-attention-row ps-attention-${escapeAttr(tone)}">
+      <span class="ps-attention-icon" aria-hidden="true">
+        <span class="dashicons ${tone === "error" ? "dashicons-warning" : "dashicons-flag"}"></span>
+      </span>
+      <button class="ps-attention-main" type="button" data-action="studio" data-scope="local" data-id="${escapeAttr(plugin.id)}" title="Open ${escapeAttr(name)} in Studio">
+        <span class="ps-attention-text">
+          <strong>${escapeHtml(name)}</strong>
+          <small>${escapeHtml(detail)}</small>
+        </span>
+      </button>
+      <span class="ps-attention-action">
+        <button class="button button-small" type="button" data-action="studio" data-scope="local" data-id="${escapeAttr(plugin.id)}">Open</button>
+      </span>
+    </li>
+  `;
+}
+
+/* ===================================================================
+ * Dashboard: Compatibility watch
+ * =================================================================== */
+
+function dashboardCompatibilitySummary() {
+  const latest = state.latestWordPressVersion || "";
+  const latestBranch = latest ? versionBranch(latest) : "";
+  let behind = 0;
+  let current = 0;
+  let unknown = 0;
+  const outdated = [];
+
+  for (const plugin of state.remote) {
+    const tested = parseTestedWith(plugin.testedWith);
+    if (!tested) {
+      unknown += 1;
+      continue;
+    }
+    if (latestBranch && compareVersionStrings(versionBranch(tested), latestBranch) < 0) {
+      behind += 1;
+      outdated.push({ plugin, tested });
+    } else {
+      current += 1;
+    }
+  }
+
+  outdated.sort((left, right) => compareVersionStrings(left.tested, right.tested));
+  return { latest, latestBranch, behind, current, unknown, outdated };
+}
+
+function renderDashboardCompatibilityWidget() {
+  if (!state.bootstrap?.loggedIn || (!state.remote.length && !state.remoteLoading)) {
+    return "";
+  }
+
+  const summary = dashboardCompatibilitySummary();
+  const latestLabel = summary.latest ? `WP ${summary.latest}` : "WordPress";
+
+  let tone = "info";
+  let label = summary.latestBranch ? "Up to date" : "Unknown";
+  if (summary.behind > 0) {
+    tone = "warning";
+    label = `${summary.behind} behind`;
+  } else if (summary.latestBranch && summary.current > 0) {
+    tone = "success";
+    label = "Up to date";
+  }
+
+  let body;
+  if (state.remoteLoading) {
+    body = `<div class="ps-side-empty"><span class="dashicons dashicons-update" aria-hidden="true"></span><span>Loading WordPress.org plugins…</span></div>`;
+  } else if (!summary.latestBranch) {
+    body = `<div class="ps-side-empty"><span class="dashicons dashicons-editor-help" aria-hidden="true"></span><span>Could not determine the latest WordPress version right now.</span></div>`;
+  } else if (!summary.outdated.length) {
+    body = `
+      <div class="ps-readiness-clear">
+        <span class="ps-readiness-clear-icon" aria-hidden="true">
+          <span class="dashicons dashicons-yes-alt"></span>
+        </span>
+        <div class="ps-readiness-clear-text">
+          <strong>${escapeHtml(`Tested with ${latestLabel}`)}</strong>
+          <p>${escapeHtml(`All ${summary.current} plugin${summary.current === 1 ? "" : "s"} declare compatibility with the latest WordPress.`)}</p>
+        </div>
+      </div>
+    `;
+  } else {
+    const rows = summary.outdated.slice(0, 4).map((item) => dashboardCompatibilityRow(item, summary)).join("");
+    body = `
+      <p class="ps-widget-intro">${escapeHtml(`Latest WordPress is ${summary.latest}. Bump "Tested up to" so users keep installing.`)}</p>
+      <ul class="ps-attention-list">${rows}</ul>
+    `;
+  }
+
+  return renderDashboardPostbox({
+    id: "dashboard-compatibility",
+    title: "Compatibility watch",
+    icon: "dashicons-wordpress",
+    actions: badge(label, tone),
+    body
+  });
+}
+
+function dashboardCompatibilityRow({ plugin, tested }, summary) {
+  return `
+    <li class="ps-attention-row ps-attention-warning">
+      <span class="ps-attention-icon" aria-hidden="true">
+        <span class="dashicons dashicons-wordpress"></span>
+      </span>
+      <button class="ps-attention-main" type="button" data-action="details" data-scope="remote" data-id="${escapeAttr(plugin.slug)}" title="View ${escapeAttr(plugin.name || plugin.slug)}">
+        <span class="ps-attention-text">
+          <strong>${escapeHtml(plugin.name || plugin.slug)}</strong>
+          <small>${escapeHtml(`Tested up to ${tested} · WordPress is ${summary.latest}`)}</small>
+        </span>
+      </button>
+      <span class="ps-attention-action">
+        ${badge(`${tested}`, "warning")}
+      </span>
+    </li>
+  `;
+}
+
+function parseTestedWith(value) {
+  const match = String(value ?? "").match(/(\d+\.\d+(?:\.\d+)?)/);
+  return match ? match[1] : "";
+}
+
+function versionBranch(value) {
+  const parts = String(value ?? "").split(".");
+  return `${parts[0] ?? "0"}.${parts[1] ?? "0"}`;
+}
+
+function compareVersionStrings(left, right) {
+  const leftParts = String(left).split(/[.-]/).map((part) => Number.parseInt(part, 10) || 0);
+  const rightParts = String(right).split(/[.-]/).map((part) => Number.parseInt(part, 10) || 0);
+  for (let index = 0; index < Math.max(leftParts.length, rightParts.length); index += 1) {
+    const diff = (leftParts[index] ?? 0) - (rightParts[index] ?? 0);
+    if (diff !== 0) {
+      return diff > 0 ? 1 : -1;
+    }
+  }
+  return 0;
+}
+
+/* ===================================================================
+ * Dashboard: WordPress.org reach
+ * =================================================================== */
+
+function dashboardReachSummary() {
+  let total = 0;
+  let known = false;
+  let plus = false;
+  let topName = "";
+  let topCount = -1;
+
+  for (const plugin of state.remote) {
+    const parsed = parseActiveInstalls(plugin.activeInstalls);
+    if (!parsed.known) {
+      continue;
+    }
+    known = true;
+    total += parsed.count;
+    if (parsed.plus) {
+      plus = true;
+    }
+    if (parsed.count > topCount) {
+      topCount = parsed.count;
+      topName = plugin.name || plugin.slug || "";
+    }
+  }
+
+  return { total, known, plus, topName: total > 0 ? topName : "" };
+}
+
+function parseActiveInstalls(value) {
+  const text = String(value ?? "").replace(/,/g, "");
+  const match = text.match(/(\d+)/);
+  if (!match) {
+    return { count: 0, plus: false, known: false };
+  }
+  return { count: Number.parseInt(match[1], 10), plus: /\+/.test(text), known: true };
+}
+
+function formatInstallCount(value) {
+  try {
+    return Number(value).toLocaleString();
+  } catch {
+    return String(value);
+  }
+}
+
+/* ===================================================================
+ * Dashboard: Getting-started checklist
+ * =================================================================== */
+
+function dashboardOnboardingSteps() {
+  const loggedIn = Boolean(state.bootstrap?.loggedIn);
+  const hasLocal = state.local.length > 0;
+  const ranCheck = Object.values(state.pluginCheckSummaries ?? {}).some((entry) => entry?.summary);
+  const released =
+    state.local.some((plugin) => state.versionStates.get(plugin.id)?.remoteVersion) ||
+    Array.from(state.jobs.values()).some(
+      (job) => job.type === "confirm-publish" && job.status === "succeeded"
+    );
+
+  return [
+    {
+      id: "login",
+      done: loggedIn,
+      label: "Connect your WordPress.org account",
+      hint: "Run pressship login in a terminal, then refresh.",
+      actionAttrs: 'data-view-button="settings"',
+      actionLabel: "Settings"
+    },
+    {
+      id: "add",
+      done: hasLocal,
+      label: "Add a local plugin",
+      hint: "Point Pressship at a plugin folder you're working on.",
+      actionAttrs: 'data-action="choose-local-folder"',
+      actionLabel: "Choose Folder"
+    },
+    {
+      id: "check",
+      done: ranCheck,
+      label: "Run Verify on a plugin",
+      hint: "Open a plugin in Studio and run Verify.",
+      actionAttrs: 'data-view-button="local"',
+      actionLabel: "Open Library"
+    },
+    {
+      id: "release",
+      done: released,
+      label: "Prepare or ship a release",
+      hint: "Review version state and walk the publish funnel.",
+      actionAttrs: 'data-view-button="release"',
+      actionLabel: "Release"
+    }
+  ];
+}
+
+function renderDashboardOnboardingCard() {
+  if (state.localLoading && !state.local.length) {
+    return "";
+  }
+
+  const steps = dashboardOnboardingSteps();
+  const done = steps.filter((step) => step.done).length;
+  if (done === steps.length) {
+    return "";
+  }
+
+  return renderDashboardPostbox({
+    id: "dashboard-getting-started",
+    title: "Getting started",
+    icon: "dashicons-flag",
+    className: "ps-dashboard-main ps-onboarding-card",
+    actions: `<span class="ps-count-pill">${done}/${steps.length}</span>`,
+    body: `<ol class="ps-onboarding-list">${steps.map(dashboardOnboardingRow).join("")}</ol>`
+  });
+}
+
+function dashboardOnboardingRow(step) {
+  const action = step.done
+    ? ""
+    : `<button class="button button-small" type="button" ${step.actionAttrs}>${escapeHtml(step.actionLabel)}</button>`;
+  return `
+    <li class="ps-onboarding-row${step.done ? " is-done" : ""}">
+      <span class="ps-onboarding-check" aria-hidden="true">
+        <span class="dashicons ${step.done ? "dashicons-yes-alt" : "dashicons-marker"}"></span>
+      </span>
+      <span class="ps-onboarding-label">
+        <strong>${escapeHtml(step.label)}</strong>
+        ${step.hint && !step.done ? `<small>${escapeHtml(step.hint)}</small>` : ""}
+      </span>
+      ${action}
+    </li>
+  `;
 }
 
 function renderPlaygroundsMenu() {
@@ -7851,13 +8630,13 @@ function renderStudioReleaseTagRow(tag) {
 function renderStudioReleaseStepValidate(versionState, release) {
   const summary = state.studio.checkSummary;
   const summaryLine = summary
-    ? `Plugin Check: ${escapeHtml(String(summary.error || 0))} errors, ${escapeHtml(String(summary.warning || 0))} warnings`
-    : "Plugin Check has not been run yet.";
+    ? `Verify: ${escapeHtml(String(summary.error || 0))} errors, ${escapeHtml(String(summary.warning || 0))} warnings`
+    : "Verify has not been run yet.";
   const validationBlocked = release.dryRun?.validationBlocked;
   const body = `
     <ul class="ps-release-validate-list">
       <li>
-        <span><span class="dashicons dashicons-yes-alt" aria-hidden="true"></span>Plugin Check</span>
+        <span><span class="dashicons dashicons-yes-alt" aria-hidden="true"></span>Readme + Plugin Check</span>
         <span class="ps-release-validate-state">${escapeHtml(summary ? "Ran" : "Pending")}</span>
         <button class="button button-small" type="button" data-action="studio-check">${summary ? "Re-run" : "Run"}</button>
       </li>
@@ -7871,6 +8650,10 @@ function renderStudioReleaseStepValidate(versionState, release) {
         <span class="ps-release-validate-state">${escapeHtml(release.dryRun?.package?.file ? "Ready" : "Build on dry-run")}</span>
       </li>
     </ul>
+    <label class="ps-release-skip-readme">
+      <input type="checkbox" id="studio-skip-readme-validation" ${release.skipReadmeValidation ? "checked" : ""} ${state.studio.checking ? "disabled" : ""} />
+      <span>skip readme validation</span>
+    </label>
     ${validationBlocked
       ? `<p class="ps-release-step-error">Validation reported blocking findings. Fix them before publishing.</p>`
       : ""}

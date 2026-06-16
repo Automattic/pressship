@@ -512,6 +512,10 @@ describe("studio server", () => {
       port: 0,
       noOpen: true,
       dependencies: {
+        validateReadmeFile: async () => ({
+          skippedRemote: false,
+          findings: []
+        }),
         runPluginCheck: async (target) => {
           checkedTarget = target;
           await writeFile(
@@ -559,6 +563,75 @@ describe("studio server", () => {
         code: "example.mutated_target",
         file: "example-plugin.php",
         line: 4
+      });
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("runs Verify with readme validation by default and passes the skip flag when requested", async () => {
+    process.env.PRESSSHIP_CONFIG_DIR = await mkdtemp(path.join(tmpdir(), "pressship-studio-config-"));
+    const pluginRoot = await samplePlugin();
+    const skipRemoteValues: boolean[] = [];
+
+    const server = await startWebServer({
+      port: 0,
+      noOpen: true,
+      dependencies: {
+        validateReadmeFile: async (_readmePath, options) => {
+          skipRemoteValues.push(Boolean(options.skipRemote));
+          return {
+            skippedRemote: Boolean(options.skipRemote),
+            findings: [
+              {
+                severity: "warning",
+                code: "readme.example",
+                message: "Readme warning."
+              }
+            ]
+          };
+        },
+        runPluginCheck: async () => ({
+          skipped: false,
+          available: true,
+          findings: []
+        })
+      }
+    });
+
+    try {
+      const added = await addLocalPlugin(server, pluginRoot);
+      const firstJob = await fetch(new URL("/api/jobs", server.url), {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Pressship-Token": server.token
+        },
+        body: JSON.stringify({
+          type: "check",
+          localId: added.id
+        })
+      }).then((response) => response.json());
+      const firstResult = await waitForJobResult(server.jobs, firstJob.id);
+
+      const secondJob = await fetch(new URL("/api/jobs", server.url), {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Pressship-Token": server.token
+        },
+        body: JSON.stringify({
+          type: "check",
+          localId: added.id,
+          skipReadmeValidator: true
+        })
+      }).then((response) => response.json());
+      await waitForJobResult(server.jobs, secondJob.id);
+
+      expect(skipRemoteValues).toEqual([false, true]);
+      expect(firstResult.findings[0]).toMatchObject({
+        code: "readme.example",
+        file: "readme.txt"
       });
     } finally {
       await server.close();
