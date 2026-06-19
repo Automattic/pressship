@@ -703,15 +703,25 @@ function showInitialRouteLoader() {
   loader.className = "ps-initial-route-loader";
   loader.setAttribute("role", "status");
   loader.setAttribute("aria-live", "polite");
+  loader.setAttribute("aria-label", "Loading Pressship Studio");
   loader.innerHTML = `
     <div class="ps-initial-route-loader-card">
-      <img src="/brand/pressship-symbol.png" alt="" />
-      <span class="dashicons dashicons-update" aria-hidden="true"></span>
-      <strong>Loading Pressship Studio</strong>
-      <p>Restoring the requested page...</p>
+      ${pressshipStudioLoaderSvg()}
     </div>
   `;
   document.body.append(loader);
+}
+
+function pressshipStudioLoaderSvg() {
+  return `
+    <svg class="ps-studio-loader-logo" viewBox="0 0 277 312" role="img" aria-label="Pressship Studio loading">
+      <image class="ps-studio-loader-symbol" href="/brand/pressship-symbol-shell.png" x="0" y="0" width="277" height="312" preserveAspectRatio="xMidYMid meet" />
+      <g class="ps-studio-loader-prompt">
+        <path d="M95 96l39 39-39 39" />
+        <path d="M95 214h62" />
+      </g>
+    </svg>
+  `;
 }
 
 function hideInitialRouteLoader() {
@@ -2236,27 +2246,10 @@ function renderStudio() {
         : "Choose a plugin from WordPress.org or Local Library.";
 
   if (state.studio.loading && !state.studio.scope && state.studio.id) {
-    const fileLabel = state.studio.selectedFile?.path
-      ? `Restoring ${state.studio.selectedFile.path}.`
-      : "Restoring the workspace.";
     els.studio.innerHTML = `
-      <div class="studio-root studio-empty-root">
-        <div class="studio-empty-state" aria-label="Opening Studio workspace">
-          <section class="studio-empty-copy">
-            <span class="studio-empty-kicker">
-              <span class="dashicons dashicons-editor-code" aria-hidden="true"></span>
-              Pressship Studio
-            </span>
-            <h1>Opening ${escapeHtml(title)}</h1>
-            <p class="studio-empty-subtitle">${escapeHtml(fileLabel)}</p>
-          </section>
-          <section class="studio-empty-panel" aria-label="Loading workspace">
-            ${loadingShell("Loading Studio workspace...")}
-          </section>
-          <div class="studio-empty-footer">
-            <span class="dashicons dashicons-update" aria-hidden="true"></span>
-            Matching the URL to a local or WordPress.org plugin.
-          </div>
+      <div class="studio-root studio-empty-root studio-logo-loading-root">
+        <div class="studio-logo-loading-shell" role="status" aria-live="polite" aria-label="Opening ${escapeAttr(title)} in Pressship Studio">
+          ${pressshipStudioLoaderSvg()}
         </div>
       </div>
     `;
@@ -8595,13 +8588,13 @@ function renderStudioReleaseTagRow(tag) {
   const switching = release.switchingTag === tag.name;
   const anySwitching = Boolean(release.switchingTag);
   const switchingLabel = release.switchingResolution === "override" || release.switchingResolution === "revert"
-    ? "Resolving"
-    : "Switching";
+    ? "Resolving…"
+    : "Switching…";
   const switchButton = tag.isUncommitted
     ? `<span class="ps-release-tag-local-note" title="This tag exists locally and will be published by the release step.">Ready for release</span>`
     : tag.isCurrent
       ? ""
-      : `<button class="button button-small" type="button" data-action="studio-release-switch" data-tag="${escapeAttr(tag.name)}" ${anySwitching ? "disabled aria-disabled=\"true\"" : ""}>${switching ? `<span class="dashicons dashicons-update" aria-hidden="true"></span>${switchingLabel}` : "Switch"}</button>`;
+      : `<button class="button button-small${switching ? " is-busy" : ""}" type="button" data-action="studio-release-switch" data-tag="${escapeAttr(tag.name)}" ${anySwitching ? "disabled aria-disabled=\"true\"" : ""} ${switching ? "aria-busy=\"true\"" : ""}>${switching ? `<span class="dashicons dashicons-update" aria-hidden="true"></span>${switchingLabel}` : "Switch"}</button>`;
   const confirmKey = `delete-tag:${tag.name}`;
   const pendingConfirm = state.studio.pendingConfirms?.get(confirmKey);
   const deleteButton = tag.isUncommitted
@@ -8618,7 +8611,6 @@ function renderStudioReleaseTagRow(tag) {
         ${isCurrent}
         ${isUncommitted}
       </span>
-      ${switching ? `<span class="ps-release-tag-spinner"><span class="dashicons dashicons-update" aria-hidden="true"></span>switching…</span>` : ""}
       <span class="ps-release-tag-actions">
         ${switchButton}
         ${deleteButton}

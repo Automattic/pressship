@@ -136,39 +136,34 @@ body.is-initial-route-loading {
 
 .ps-initial-route-loader-card {
   display: grid;
+  place-items: center;
   justify-items: center;
-  gap: 12px;
-  width: min(340px, calc(100vw - 48px));
-  padding: 28px;
-  border: 1px solid var(--wp-border);
-  border-radius: var(--wp-radius-l);
-  background: var(--wp-surface);
-  box-shadow: var(--wp-shadow-md);
-  text-align: center;
+  width: min(160px, calc(100vw - 48px));
+  padding: 0;
 }
 
-.ps-initial-route-loader-card img {
-  width: 36px;
-  height: 36px;
-  object-fit: contain;
+.ps-studio-loader-logo {
+  --ps-loader-prompt: #102033;
+  width: clamp(160px, 24vw, 220px);
+  height: auto;
+  overflow: visible;
 }
 
-.ps-initial-route-loader-card .dashicons {
-  width: 24px;
-  height: 24px;
-  color: var(--wp-admin-theme-color);
-  animation: ps-spin 1s linear infinite;
+.ps-studio-loader-symbol {
+  pointer-events: none;
 }
 
-.ps-initial-route-loader-card strong {
-  color: var(--wp-heading);
-  font-size: 15px;
-  line-height: 1.25;
+.ps-studio-loader-prompt path {
+  fill: none;
+  vector-effect: non-scaling-stroke;
 }
 
-.ps-initial-route-loader-card p {
-  margin: -4px 0 0;
-  color: var(--wp-text-soft);
+.ps-studio-loader-prompt {
+  stroke: var(--ps-loader-prompt);
+  stroke-width: 23;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  animation: ps-studio-loader-prompt 2.8s ease-in-out infinite;
 }
 
 button,
@@ -3197,6 +3192,17 @@ body[data-active-view="studio"] #notice-stack {
   color: var(--wp-text);
 }
 
+.studio-logo-loading-root {
+  display: grid;
+  place-items: center;
+}
+
+.studio-logo-loading-shell {
+  display: grid;
+  place-items: center;
+  min-height: 100%;
+}
+
 .studio-empty-state {
   align-content: center;
   display: grid;
@@ -5654,6 +5660,16 @@ body.is-studio-resizing-v iframe {
     Oxygen-Sans, Ubuntu, Cantarell, "Helvetica Neue", sans-serif;
 }
 
+.studio-ai-message-user .studio-ai-markdown,
+.studio-ai-message-user .studio-ai-markdown h1,
+.studio-ai-message-user .studio-ai-markdown h2,
+.studio-ai-message-user .studio-ai-markdown h3,
+.studio-ai-message-user .studio-ai-markdown h4,
+.studio-ai-message-user .studio-ai-markdown h5,
+.studio-ai-message-user .studio-ai-markdown h6 {
+  color: #ffffff;
+}
+
 .studio-ai-changes {
   grid-row: 3;
   max-height: 176px;
@@ -6570,6 +6586,12 @@ body.is-studio-resizing-v iframe {
   color: var(--studio-vscode-text);
 }
 
+.studio-root[data-theme="dark"] .studio-ai-markdown table,
+.studio-root[data-theme="dark"] .studio-ai-markdown th,
+.studio-root[data-theme="dark"] .studio-ai-markdown td {
+  border-color: var(--studio-vscode-border-strong);
+}
+
 .studio-root[data-theme="dark"] .studio-ai-reply ::selection,
 .studio-root[data-theme="dark"] .studio-ai-bubble ::selection,
 .studio-root[data-theme="dark"] .studio-ai-composer textarea::selection {
@@ -6983,6 +7005,23 @@ body.is-studio-resizing-v iframe {
 @keyframes ps-spin {
   to {
     transform: rotate(360deg);
+  }
+}
+
+@keyframes ps-studio-loader-prompt {
+  0%,
+  100% {
+    opacity: 0.18;
+  }
+
+  50% {
+    opacity: 0.6;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ps-studio-loader-prompt {
+    animation: none;
   }
 }
 
@@ -7786,6 +7825,10 @@ td code {
   animation: ps-spin 0.85s linear infinite;
 }
 
+.ps-release-tag-actions .button.is-busy .dashicons-update {
+  animation: ps-spin 0.85s linear infinite;
+}
+
 .ps-release-bump-button.is-success {
   border-color: var(--wp-success);
   color: var(--wp-success);
@@ -7975,21 +8018,6 @@ td code {
 .ps-release-tag-uncommitted {
   background: var(--wp-warning-bg);
   color: var(--wp-warning);
-}
-
-.ps-release-tag-spinner {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 10px;
-  color: var(--wp-text-muted);
-}
-
-.ps-release-tag-spinner .dashicons {
-  animation: ps-spin 0.85s linear infinite;
-  font-size: 12px;
-  width: 12px;
-  height: 12px;
 }
 
 .ps-release-tag-actions {
@@ -8456,7 +8484,6 @@ td code {
 .studio-root[data-theme="dark"]:not(.studio-empty-root) .ps-release-option-copy,
 .studio-root[data-theme="dark"]:not(.studio-empty-root) .ps-release-ignored-files,
 .studio-root[data-theme="dark"]:not(.studio-empty-root) .ps-release-ignored-files small,
-.studio-root[data-theme="dark"]:not(.studio-empty-root) .ps-release-tag-spinner,
 .studio-root[data-theme="dark"]:not(.studio-empty-root) .ps-release-tag-empty,
 .studio-root[data-theme="dark"]:not(.studio-empty-root) .ps-release-validate-state,
 .studio-root[data-theme="dark"]:not(.studio-empty-root) .ps-release-publish-summary small {
@@ -8906,6 +8933,19 @@ td code {
 
 .studio-root[data-theme="light"] .studio-ai-messages {
   background: #ffffff;
+}
+
+.studio-root[data-theme="light"] .studio-ai-message-user .studio-ai-bubble {
+  border-color: var(--wp-admin-theme-color);
+  background: var(--wp-admin-theme-color);
+  color: #ffffff;
+}
+
+.studio-root[data-theme="light"] .studio-ai-message-user .studio-ai-bubble header,
+.studio-root[data-theme="light"] .studio-ai-message-user .studio-ai-bubble header span,
+.studio-root[data-theme="light"] .studio-ai-message-user .studio-ai-bubble header time,
+.studio-root[data-theme="light"] .studio-ai-message-user .studio-ai-markdown {
+  color: #ffffff;
 }
 
 .studio-root[data-theme="light"] .studio-ai-suggestion:hover,
