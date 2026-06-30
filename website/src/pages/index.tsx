@@ -15,12 +15,16 @@ import {
   faCodeBranch,
   faCloudArrowUp,
   faCopy,
+  faDownload,
+  faFileLines,
+  faLock,
   faMagnifyingGlassChart,
   faPlay,
   faRobot,
   faRocket,
   faShieldHalved,
   faTerminal,
+  faTriangleExclamation,
   faVialCircleCheck,
   faXmark
 } from "@fortawesome/free-solid-svg-icons";
@@ -146,6 +150,59 @@ const features = [
   }
 ];
 
+const agentCards = [
+  {
+    icon: faRobot,
+    title: "One endpoint, two readers",
+    text: "Agents fetch pressship.org/ai and people open the same page — both follow the identical verified WordPress.org publishing flow."
+  },
+  {
+    icon: faShieldHalved,
+    title: "Dry-run before mutation",
+    text: "The endpoint tells agents to inspect, verify, package, and run publish dry runs before upload, reupload, or SVN release."
+  },
+  {
+    icon: faTerminal,
+    title: "Works from any agent shell",
+    text: "Codex, Claude Code, Cursor, ChatGPT, OpenCode, and anything that can fetch a URL can learn the path in plain text."
+  }
+];
+
+export type RunStep = {
+  title: string;
+  text?: string;
+  cmds?: string[];
+  checkpoint?: boolean;
+};
+
+export const getRunbookSteps = (prefix: string): RunStep[] => [
+  {
+    title: "Identify the plugin root",
+    text: "Don't assume the repository root is the plugin root when multiple plugins or build outputs exist."
+  },
+  {
+    title: "Check the account and route",
+    cmds: [`${prefix} whoami`, `${prefix} info .`, `${prefix} status .`]
+  },
+  {
+    title: "Validate before packaging",
+    cmds: [`${prefix} verify .`]
+  },
+  {
+    title: "Package after validation",
+    cmds: [`${prefix} pack .`]
+  },
+  {
+    title: "Dry-run before any mutation",
+    cmds: [`${prefix} publish . --dry-run -y`]
+  },
+  {
+    title: "Ask before mutating remote state",
+    text: "Pause before any upload, reupload, SVN commit, release tag, or git change.",
+    checkpoint: true
+  }
+];
+
 const commands = [
   { name: "login", description: "Open WordPress.org login in a browser and save the session." },
   { name: "whoami", description: "Show the active WordPress.org account." },
@@ -168,7 +225,14 @@ const installMethods = [
   { label: "wp-cli", command: "wp package install Automattic/pressship" }
 ];
 
-const skillCommand = "npx skills add Automattic/pressship --skill wordpress-plugin-publish -a codex";
+const agentTargets = [
+  { label: "Codex", value: "codex" },
+  { label: "Claude Code", value: "claude-code" }
+];
+const skillCommandFor = (target: string) =>
+  `npx skills add Automattic/pressship --skill wordpress-plugin-publish -a ${target}`;
+const agentPrompt =
+  "Fetch https://pressship.org/ai and use Pressship to prepare this WordPress plugin for publishing. Run verify and a publish dry run first. Ask before uploading, committing to SVN, or changing git.";
 const claudeCodeIconUrl = "https://cdn.jsdelivr.net/npm/simple-icons@latest/icons/claude.svg";
 
 type StudioSlideBase = {
@@ -197,6 +261,15 @@ type StudioAgentSlide = StudioSlideBase & {
 type StudioSlide = StudioImageSlide | StudioCliSlide | StudioAgentSlide;
 
 const studioSlides: StudioSlide[] = [
+  {
+    kind: "agent",
+    icon: faRobot,
+    iconImage: claudeCodeIconUrl,
+    eyebrow: "Agent harness",
+    title: "Hand the prompt above to any agent and it runs the verified path.",
+    description:
+      "Your agent fetches pressship.org/ai (or installs the skill), then follows the same dry-run-first flow: inspect, validate, package, and ask before any upload or SVN commit."
+  },
   {
     kind: "cli",
     icon: faTerminal,
@@ -235,15 +308,6 @@ const studioSlides: StudioSlide[] = [
     description:
       "Preview the plugin in WordPress Playground using its own requirements, then jump back to the file or release pane.",
     alt: "Pressship Studio with the WordPress Playground preview open beside the file tree"
-  },
-  {
-    kind: "agent",
-    icon: faRobot,
-    iconImage: claudeCodeIconUrl,
-    eyebrow: "Agent harness",
-    title: "Use the Pressship skill from Claude Code-style agent chats.",
-    description:
-      "Install the skill once and agents learn the same dry-run-first Pressship flow: inspect, validate, package, then ask before upload or SVN commit."
   }
 ];
 
@@ -299,68 +363,6 @@ const studioHighlights = [
     text: "Submit, reupload, release, SVN tags, ignored files, package size, and confirmation steps are kept in the right pane."
   }
 ];
-
-const heroPhrases = [
-  "from the terminal.",
-  "using agents.",
-  "modernized.",
-  "seamlessly.",
-  "like npm publish.",
-  "in one command.",
-  "without the friction.",
-  "for plugin authors.",
-  "automated end to end.",
-  "the right way."
-];
-
-type TypewriterPhase = "typing" | "hold" | "deleting" | "between";
-
-function TypewriterAccent({ phrases }: { phrases: string[] }): ReactNode {
-  const [phraseIndex, setPhraseIndex] = useState(0);
-  const [text, setText] = useState(phrases[0] ?? "");
-  const [phase, setPhase] = useState<TypewriterPhase>("hold");
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return;
-
-    let timer: ReturnType<typeof setTimeout> | undefined;
-
-    if (phase === "hold") {
-      timer = setTimeout(() => setPhase("deleting"), 1800);
-    } else if (phase === "deleting") {
-      if (text.length === 0) {
-        setPhase("between");
-      } else {
-        timer = setTimeout(() => setText((current) => current.slice(0, -1)), 28);
-      }
-    } else if (phase === "between") {
-      timer = setTimeout(() => {
-        setPhraseIndex((index) => (index + 1) % phrases.length);
-        setPhase("typing");
-      }, 220);
-    } else {
-      const target = phrases[phraseIndex] ?? "";
-      if (text === target) {
-        setPhase("hold");
-      } else {
-        timer = setTimeout(() => {
-          setText(target.slice(0, text.length + 1));
-        }, 55);
-      }
-    }
-
-    return () => {
-      if (timer) clearTimeout(timer);
-    };
-  }, [phase, text, phraseIndex, phrases]);
-
-  return (
-    <span className={styles.heroTitleAccent} aria-live="polite" aria-atomic="true">
-      {text}
-    </span>
-  );
-}
 
 function commandDocPath(name: string): string {
   if (name === "login" || name === "whoami") {
@@ -488,7 +490,7 @@ function StudioShowcaseSlider({
 
             <div className={styles.studioAgentMessages}>
               <div className={`${styles.studioAgentBubble} ${styles.studioAgentBubbleUser}`}>
-                Can you prepare this plugin for WordPress.org and tell me if it is safe to publish?
+                {agentPrompt}
               </div>
               <div className={`${styles.studioAgentBubble} ${styles.studioAgentBubbleAssistant}`}>
                 I’ll use Pressship in dry-run mode first, then report the route before anything uploads.
@@ -577,46 +579,169 @@ function StudioShowcaseSlider({
   );
 }
 
-function InstallStrip(): ReactNode {
-  const { method, setMethod } = useInstallMethod();
-  const active = installMethods.findIndex((m) => m.label === method) === -1 ? 0 : installMethods.findIndex((m) => m.label === method);
-  const [copiedInstall, setCopiedInstall] = useState(false);
+function HeroSetup(): ReactNode {
+  const { method, setMethod, prefix } = useInstallMethod();
+  const [mode, setMode] = useState<"agents" | "cli">("agents");
+  const [agentTarget, setAgentTarget] = useState(agentTargets[0].value);
+  const [copied, setCopied] = useState(false);
 
-  const copyInstall = useCallback(async () => {
+  const foundCli = installMethods.findIndex((m) => m.label === method);
+  const activeCli = foundCli === -1 ? 0 : foundCli;
+  const command = mode === "agents" ? skillCommandFor(agentTarget) : installMethods[activeCli].command;
+
+  const copyCommand = useCallback(async () => {
     try {
-      await navigator.clipboard.writeText(installMethods[active].command);
-      setCopiedInstall(true);
-      setTimeout(() => setCopiedInstall(false), 1600);
+      await navigator.clipboard.writeText(command);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1600);
     } catch {
       /* ignore */
     }
-  }, [active]);
+  }, [command]);
+
+  const tabs =
+    mode === "agents"
+      ? agentTargets.map((target) => ({
+          key: target.value,
+          label: target.label,
+          active: target.value === agentTarget,
+          onClick: () => setAgentTarget(target.value)
+        }))
+      : installMethods.map((installMethod) => ({
+          key: installMethod.label,
+          label: installMethod.label,
+          active: installMethod.label === method,
+          onClick: () => setMethod(installMethod.label as InstallMethod)
+        }));
 
   return (
-    <div className={styles.installStrip}>
-      <div className={styles.installTabs} role="tablist">
-        {installMethods.map((method, i) => (
-          <button
-            key={method.label}
-            type="button"
-            role="tab"
-            aria-selected={i === active}
-            className={`${styles.installTab} ${i === active ? styles.installTabActive : ""}`}
-            onClick={() => setMethod(installMethods[i].label as InstallMethod)}>
-            {method.label}
-          </button>
-        ))}
-      </div>
-      <div className={styles.installCommand} role="tabpanel">
-        <span className={styles.installPrompt}>$</span>
-        <code className={styles.installCode}>{installMethods[active].command}</code>
+    <div className={styles.setup}>
+      <div className={styles.setupSwitch} role="tablist" aria-label="How are you using Pressship?">
         <button
           type="button"
-          className={styles.installCopy}
-          onClick={copyInstall}
-          aria-label="Copy install command">
-          <FontAwesomeIcon icon={copiedInstall ? faCheck : faCopy} />
+          role="tab"
+          aria-selected={mode === "agents"}
+          className={`${styles.setupSwitchBtn} ${mode === "agents" ? styles.setupSwitchBtnActive : ""}`}
+          onClick={() => setMode("agents")}>
+          <FontAwesomeIcon icon={faRobot} />
+          I’m using agents
         </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={mode === "cli"}
+          className={`${styles.setupSwitchBtn} ${mode === "cli" ? styles.setupSwitchBtnActive : ""}`}
+          onClick={() => setMode("cli")}>
+          <FontAwesomeIcon icon={faTerminal} />
+          I’m using the CLI
+        </button>
+      </div>
+
+      <div className={styles.setupBar}>
+        <div className={styles.setupBarTabs} role="tablist" aria-label={mode === "agents" ? "Agent target" : "Install method"}>
+          {tabs.map((tab) => (
+            <button
+              key={tab.key}
+              type="button"
+              role="tab"
+              aria-selected={tab.active}
+              className={`${styles.setupBarTab} ${tab.active ? styles.setupBarTabActive : ""}`}
+              onClick={tab.onClick}>
+              {tab.label}
+            </button>
+          ))}
+        </div>
+        <div className={styles.setupBarCommand} role="tabpanel">
+          <span className={styles.installPrompt}>$</span>
+          <code className={styles.setupBarCode}>{command}</code>
+          <button type="button" className={styles.setupBarCopy} onClick={copyCommand} aria-label="Copy command">
+            <FontAwesomeIcon icon={copied ? faCheck : faCopy} />
+            <span>{copied ? "Copied" : "Copy"}</span>
+          </button>
+        </div>
+      </div>
+
+      <p className={styles.setupHint}>
+        {mode === "agents" ? (
+          <>Installs the dry-run-first publishing skill. No skills runtime? Just hand your agent the prompt above.</>
+        ) : (
+          <>
+            Run any command yourself — <code>{prefix} --help</code> lists them all.
+          </>
+        )}
+      </p>
+    </div>
+  );
+}
+
+export function AgentInstructionsBrowser({
+  prefix,
+  compact = false,
+  steps
+}: {
+  prefix: string;
+  compact?: boolean;
+  steps?: RunStep[];
+}): ReactNode {
+  const runSteps = steps ?? getRunbookSteps(prefix);
+
+  return (
+    <div className={`${styles.aiBrowser} ${compact ? styles.aiBrowserCompact : ""}`}>
+      <div className={styles.aiBrowserBar}>
+        <div className={styles.aiBrowserDots} aria-hidden="true">
+          <span />
+          <span />
+          <span />
+        </div>
+        <span className={styles.aiBrowserUrl}>
+          <FontAwesomeIcon icon={faLock} />
+          <span>
+            pressship.org<strong>/ai</strong>
+          </span>
+        </span>
+        <span className={styles.aiBrowserFetch}>
+          <FontAwesomeIcon icon={faDownload} />
+          fetchable
+        </span>
+      </div>
+      <div className={styles.aiBrowserBody}>
+        <span className={styles.aiBrowserDoc} aria-hidden="true">
+          <FontAwesomeIcon icon={faFileLines} />
+          Publishing runbook
+        </span>
+        <ol className={styles.runbook}>
+          {runSteps.map((step, index) => (
+            <li
+              key={step.title}
+              className={`${styles.runStep} ${step.checkpoint ? styles.runStepCheckpoint : ""}`}>
+              <span className={styles.runIndex} aria-hidden="true">
+                {index + 1}
+              </span>
+              <div className={styles.runMain}>
+                <Heading as="h3" className={styles.runTitle}>
+                  {step.title}
+                </Heading>
+                {step.text && <p className={styles.runText}>{step.text}</p>}
+                {step.cmds && (
+                  <div className={styles.runCmds}>
+                    {step.cmds.map((cmd) => (
+                      <span key={cmd} className={styles.runCmd}>
+                        <span className={styles.prompt}>$</span>
+                        {cmd}
+                      </span>
+                    ))}
+                  </div>
+                )}
+                {step.checkpoint && (
+                  <span className={styles.runCheckpointTag}>
+                    <FontAwesomeIcon icon={faTriangleExclamation} />
+                    Human approval required
+                  </span>
+                )}
+              </div>
+            </li>
+          ))}
+        </ol>
       </div>
     </div>
   );
@@ -626,14 +751,14 @@ export default function Home(): ReactNode {
   const logoUrl = useBaseUrl("/img/pressship-square.png");
   const logoDarkUrl = useBaseUrl("/img/pressship-square-dark.png");
   const filigranLogoUrl = useBaseUrl("/img/pressship-square-dark.png");
-  const [copied, setCopied] = useState(false);
+  const [copiedAgentPrompt, setCopiedAgentPrompt] = useState(false);
   const { prefix } = useInstallMethod();
 
-  const copySkill = async () => {
+  const copyAgentPrompt = async () => {
     try {
-      await navigator.clipboard.writeText(skillCommand);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1600);
+      await navigator.clipboard.writeText(agentPrompt);
+      setCopiedAgentPrompt(true);
+      setTimeout(() => setCopiedAgentPrompt(false), 1600);
     } catch {
       /* ignore */
     }
@@ -643,8 +768,8 @@ export default function Home(): ReactNode {
 
   return (
     <Layout
-      title="WordPress.org plugin publishing from the terminal"
-      description="Pressship validates, packages, submits, releases, inspects, and demos WordPress.org plugins from the command line.">
+      title="Pressship for WordPress.org publishing agents"
+      description="Tell an agent to fetch pressship.org/ai, then use Pressship to validate, package, dry-run, and publish WordPress.org plugins with explicit human checkpoints.">
       <main className={styles.main}>
         {/* ─────────── HERO ─────────── */}
         <section className={styles.hero}>
@@ -661,48 +786,57 @@ export default function Home(): ReactNode {
           <img className={styles.heroPressshipFiligran} src={filigranLogoUrl} alt="" aria-hidden="true" />
           <div className="container">
             <div className={styles.heroInner}>
-              {/* Skill install promoted to the top */}
-              <div className={styles.heroSkill}>
-                <div className={styles.heroSkillLabel}>
-                  <FontAwesomeIcon icon={faRobot} />
-                  <span>Install the agent skill</span>
-                </div>
-                <div className={styles.heroSkillBar}>
-                  <span className={styles.heroSkillPrompt}>$</span>
-                  <code className={styles.heroSkillCommand}>{skillCommand}</code>
-                  <button
-                    type="button"
-                    className={styles.heroSkillCopy}
-                    onClick={copySkill}
-                    aria-label="Copy install command">
-                    <FontAwesomeIcon icon={copied ? faCheck : faCopy} />
-                    <span>{copied ? "Copied" : "Copy"}</span>
-                  </button>
-                </div>
+              <div className={styles.heroAgentCue}>
+                <FontAwesomeIcon icon={faRobot} />
+                <span>Built for agents and humans</span>
               </div>
 
               <Heading as="h1" className={styles.heroTitle}>
-                WordPress.org plugin publishing,
+                Put agents and humans on the{" "}
                 <br />
-                <TypewriterAccent phrases={heroPhrases} />
+                WordPress.org publishing path.
               </Heading>
 
               <p className={styles.heroSubtitle}>
-                Pressship validates, packages, submits, releases, inspects, and demos WordPress.org plugins —
-                with review, SVN, and local setup steps kept explicit while the chores stay quiet.
+                Pressship is one bounded source of truth your agent can fetch — or you can read: inspect the plugin,
+                run the checks, dry-run the route, then confirm before anything uploads or commits.
               </p>
 
+              <div className={styles.heroPrompt}>
+                <p className={styles.heroPromptLabel}>To prepare a plugin, say this to your agent:</p>
+                <button
+                  type="button"
+                  className={styles.heroPromptBox}
+                  onClick={copyAgentPrompt}
+                  aria-label="Copy Pressship agent prompt">
+                  <span className={styles.heroPromptCopy}>{copiedAgentPrompt ? "Copied" : "Copy"}</span>
+                  <span className={styles.heroPromptText}>{agentPrompt}</span>
+                </button>
+                <div className={styles.heroAgents}>
+                  <span className={styles.heroAgentsLabel}>Fetchable by</span>
+                  <Link to="/docs/guides/agent-skill">Codex</Link>
+                  <Link to="/docs/guides/agent-skill">Claude Code</Link>
+                  <Link to="/ai">ChatGPT</Link>
+                  <Link to="/ai">Cursor</Link>
+                  <span>anything with URL fetch</span>
+                </div>
+                <p className={styles.heroPromptNote}>
+                  The human page is <Link to="/ai">/ai</Link>; plain-text agent instructions are also available at{" "}
+                  <Link to="pathname:///ai.txt">/ai.txt</Link>.
+                </p>
+              </div>
+
+              <HeroSetup />
+
               <div className={styles.heroActions}>
-                <Link className="button button--primary button--lg" to="/docs/getting-started">
-                  Get started
+                <Link className="button button--primary button--lg" to="/ai">
+                  Open the agent endpoint
                 </Link>
-                <Link className="button button--secondary button--lg" to="https://github.com/Automattic/pressship">
-                  GitHub
+                <Link className="button button--secondary button--lg" to="/docs/getting-started">
+                  Read the docs
                   <FontAwesomeIcon icon={faArrowRight} style={{ marginLeft: "0.45rem", width: "0.85rem", height: "0.85rem" }} />
                 </Link>
               </div>
-
-              <InstallStrip />
 
               <StudioShowcaseSlider hideChrome prefix={prefix} />
 
@@ -726,6 +860,52 @@ export default function Home(): ReactNode {
                   Built on WordPress.org review, Plugin Check, SVN, Subversion setup helpers, and WordPress Playground.
                 </span>
               </div>
+            </div>
+          </div>
+        </section>
+
+        {/* ─────────── AGENT ENDPOINT ─────────── */}
+        <section className={`${styles.section} ${styles.agentSection}`}>
+          <div className="container">
+            <div className={styles.agentShowcase}>
+              <div className={styles.agentShowcaseCopy}>
+                <span className={styles.sectionLabel}>Agents &amp; humans</span>
+                <Heading as="h2" className={styles.sectionTitle}>
+                  One runbook, whether you fetch it or read it.
+                </Heading>
+                <p className={styles.agentShowcaseLead}>
+                  Agents fetch <code>pressship.org/ai</code>; people read the same page. Either way it's one bounded
+                  workflow — inspect, validate, package, dry-run — the verified WordPress.org path, with no improvised
+                  commands.
+                </p>
+
+                <div className={styles.agentPointList}>
+                  {agentCards.map((card) => (
+                    <div key={card.title} className={styles.agentPoint}>
+                      <span className={styles.agentPointIcon} aria-hidden="true">
+                        <FontAwesomeIcon icon={card.icon} />
+                      </span>
+                      <div>
+                        <Heading as="h3" className={styles.agentPointTitle}>
+                          {card.title}
+                        </Heading>
+                        <p>{card.text}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                <div className={styles.agentShowcaseLinks}>
+                  <Link className="button button--primary" to="/ai">
+                    Open the agent endpoint
+                  </Link>
+                  <Link className="button button--secondary" to="pathname:///ai.txt">
+                    View /ai.txt
+                  </Link>
+                </div>
+              </div>
+
+              <AgentInstructionsBrowser prefix={prefix} />
             </div>
           </div>
         </section>

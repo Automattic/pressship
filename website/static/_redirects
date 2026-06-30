@@ -1,0 +1,2 @@
+# Serve plain instructions to agent-like requests when the host supports Agent=true.
+/ai /ai.txt 200! Agent=true

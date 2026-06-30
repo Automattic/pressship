@@ -1,0 +1,147 @@
+# Pressship for AI agents
+
+Official instructions for agents using Pressship to prepare WordPress.org plugins for publishing.
+
+Pressship is a CLI and local Studio for WordPress.org plugin workflows: inspect plugin metadata, validate readme.txt, run Plugin Check, package installable zips, submit or reupload review packages, release approved plugins through SVN, and open WordPress Playground demos.
+
+## Start here
+
+If the user asks you to prepare, validate, package, submit, reupload, or release a WordPress.org plugin, use Pressship in this order:
+
+1. Identify the plugin root. Do not assume the repository root is the plugin root if multiple plugins or build outputs exist.
+2. Check the current account and route when credentials are available:
+
+```bash
+pressship whoami
+pressship info .
+pressship status .
+```
+
+3. Validate before packaging:
+
+```bash
+pressship verify .
+```
+
+4. Package only after validation is understood:
+
+```bash
+pressship pack .
+```
+
+5. Dry-run publishing before any upload, reupload, SVN commit, or release tag:
+
+```bash
+pressship publish . --dry-run -y
+```
+
+6. Ask the user before running a mutating publish command, committing to SVN, creating tags, changing git, or bypassing validation.
+
+## Install Pressship
+
+Prefer the local project command when available:
+
+```bash
+npx pressship verify .
+npx pressship publish . --dry-run -y
+```
+
+For repeated use:
+
+```bash
+npm install -g pressship
+pressship verify .
+```
+
+WP-CLI users can install the package and use the `wp ship` command:
+
+```bash
+wp package install Automattic/pressship
+wp ship verify .
+wp ship publish . --dry-run
+```
+
+## Install the agent skill
+
+When your agent environment supports skills, install the Pressship publishing skill:
+
+```bash
+npx skills add Automattic/pressship --skill wordpress-plugin-publish -a codex
+```
+
+For Claude Code:
+
+```bash
+npx skills add Automattic/pressship --skill wordpress-plugin-publish -a claude-code
+```
+
+The skill enforces a cautious flow: inspect first, dry-run before mutation, keep Plugin Check findings visible, and report what happened.
+
+## Route selection
+
+Use `pressship publish . --dry-run -y` to let Pressship detect the route:
+
+- New plugin: prepares a WordPress.org submission upload.
+- Pending review plugin: prepares a reupload.
+- Approved plugin: prepares an SVN release.
+
+For approved plugins, you can force the release route:
+
+```bash
+pressship publish . --release --dry-run -y
+```
+
+Only run the non-dry-run command after the user approves the exact route:
+
+```bash
+pressship publish . -y
+pressship publish . --release -y
+```
+
+## Existing SVN plugins
+
+For an existing WordPress.org SVN plugin, use the checkout-root flow:
+
+```bash
+pressship get my-plugin ./my-plugin
+cd ./my-plugin
+pressship version patch
+pressship publish --release --dry-run -y
+```
+
+Ask before the final release command:
+
+```bash
+pressship publish --release -y
+```
+
+## Human checkpoints
+
+Always ask before:
+
+- Uploading or reuploading to WordPress.org.
+- Committing to SVN or creating release tags.
+- Changing git commits, branches, tags, or remotes.
+- Using `--no-verify`.
+- Ignoring Plugin Check warnings as acceptable.
+- Publishing from a generated build folder when the source plugin root is unclear.
+
+## Final report
+
+At the end, tell the user:
+
+- whether `verify` ran;
+- whether a publishing dry run ran;
+- Plugin Check result summary;
+- package size and notable included or excluded files;
+- selected route: new submission, reupload, or SVN release;
+- upload or release status and slug, if mutation was approved;
+- whether git and SVN were left untouched or changed.
+
+## Useful docs
+
+- Agent skill guide: https://pressship.org/docs/guides/agent-skill
+- Getting started: https://pressship.org/docs/getting-started
+- Publish command: https://pressship.org/docs/commands/publish
+- Pack command: https://pressship.org/docs/commands/pack
+- Studio command: https://pressship.org/docs/commands/studio

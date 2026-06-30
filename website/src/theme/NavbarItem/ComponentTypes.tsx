@@ -7,7 +7,7 @@ import DocNavbarItem from '@theme/NavbarItem/DocNavbarItem';
 import DocSidebarNavbarItem from '@theme/NavbarItem/DocSidebarNavbarItem';
 import DocsVersionNavbarItem from '@theme/NavbarItem/DocsVersionNavbarItem';
 import DocsVersionDropdownNavbarItem from '@theme/NavbarItem/DocsVersionDropdownNavbarItem';
-import InstallMethodDropdown from '@theme/NavbarItem/InstallMethodDropdown';
+import InstallMethodDropdown from './InstallMethodDropdown';
 
 import type {ComponentTypesObject} from '@theme/NavbarItem/ComponentTypes';
 
