@@ -1025,8 +1025,8 @@ table tbody tr:hover {
 
 .footer__bottom {
   border-top: 1px solid var(--pp-border);
-  padding-top: 1.5rem;
-  margin-top: 2.5rem;
+  padding-top: 2.5rem;
+  margin-top: 3rem;
   color: var(--pp-muted-foreground);
   font-size: 0.85rem;
 }
@@ -1035,18 +1035,90 @@ table tbody tr:hover {
   color: var(--pp-muted-foreground);
 }
 
+/* ─── "We're the people behind" — Automattic branding band ─── */
+
+.pp-made-by {
+  max-width: 720px;
+  margin: 0 auto 1.5rem;
+  padding: 2.25rem 1.75rem;
+  text-align: center;
+  border: 1px solid var(--pp-border);
+  border-radius: var(--pp-radius-xl);
+  background:
+    radial-gradient(ellipse 90% 120% at 50% -10%, color-mix(in oklch, var(--pp-primary) 8%, transparent), transparent 70%),
+    var(--pp-background);
+}
+
+.pp-made-by__kicker {
+  display: block;
+  margin-bottom: 0.7rem;
+  font-family: var(--ifm-font-family-monospace);
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--pp-muted-foreground);
+}
+
+.pp-made-by__wordmark {
+  display: inline-block;
+  font-family: var(--pp-font-sans);
+  font-size: clamp(1.7rem, 4vw, 2.3rem);
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  line-height: 1;
+  color: var(--pp-foreground) !important;
+  text-decoration: none !important;
+  transition: opacity 140ms ease;
+}
+
+.pp-made-by__wordmark:hover {
+  opacity: 0.7;
+}
+
+.pp-made-by__lead {
+  max-width: 520px;
+  margin: 1rem auto 0;
+  color: var(--pp-subtle-foreground);
+  font-size: 0.98rem;
+  line-height: 1.6;
+}
+
+.pp-made-by__products {
+  max-width: 600px;
+  margin: 1.1rem auto 0;
+  padding-top: 1.1rem;
+  border-top: 1px solid var(--pp-border);
+  color: var(--pp-muted-foreground);
+  font-size: 0.9rem;
+  line-height: 1.85;
+}
+
+.pp-made-by__products a {
+  color: var(--pp-foreground) !important;
+  font-weight: 500;
+  text-decoration: none !important;
+  border-bottom: 1px solid var(--pp-border-strong);
+  transition: border-color 140ms ease, color 140ms ease;
+  white-space: nowrap;
+}
+
+.pp-made-by__products a:hover {
+  border-bottom-color: var(--pp-foreground);
+}
+
 /* ─── Disclaimer block (WordPress.org logo + independence note) ─── */
 
 .pp-footer-disclaimer {
   display: flex;
   align-items: flex-start;
   gap: 1rem;
-  max-width: 760px;
+  max-width: 720px;
   margin: 0 auto 1.25rem;
   padding: 1rem 1.15rem;
   border: 1px solid var(--pp-border);
   border-radius: var(--pp-radius-md);
-  background: var(--pp-background);
+  background: var(--pp-card);
   text-align: left;
 }
 

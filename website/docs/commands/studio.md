@@ -79,7 +79,7 @@ The default checkout directory is configured in Settings and defaults to `~/.pre
 
 ## Opening a Workspace
 
-![Pressship Studio workspace with file tree, editor, terminal, and AI sidebar](/img/studio/studio-home-workspace-full.png)
+![Pressship Studio workspace with file tree, editor, terminal, and AI sidebar](/img/studio/studio-workspace.png)
 
 Use the Studio screen to open a tracked local plugin or choose a local plugin folder. A local workspace includes:
 
@@ -114,8 +114,6 @@ The editor supports:
 If you switch files with unsaved changes, Studio asks before discarding the current draft.
 
 ## Package Size and CLI Hints
-
-![Studio toolbar showing package size and equivalent command context](/img/studio/studio-package-size.png)
 
 The Size control estimates the installable package size without blocking the page. Studio caches the result and only recalculates when you ask again or when edits make the package state stale. When the package exceeds WordPress.org's upload limit, the toolbar highlights it.
 
@@ -169,7 +167,7 @@ In `auto` mode, Studio uses SQLite for supported WordPress versions and can use 
 
 ## AI Assistance
 
-![AI assistant provider settings in Pressship Studio](/img/studio/studio-settings-ai.png)
+![AI assistance sidebar inside Pressship Studio](/img/studio/studio-ai-assistance.png)
 
 AI assistance is configured in Settings. Studio detects available Harness providers and shows each provider's status.
 
